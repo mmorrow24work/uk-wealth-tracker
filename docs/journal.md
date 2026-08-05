@@ -160,3 +160,26 @@ Entry format. The Claude Code session that implements the issue writes everythin
 - Did not add shadcn-svelte or its integration (e.g., installing `shadcn-svelte` CLI, configuring `components.json`, copying component templates). That is issue #41, a distinct task. Tailwind alone is enough to style the nav shell and provide a foundation for later components.
 - Left the chart library decision (Recharts vs Chart.js) unchanged — no charting dependency was installed here, per the earlier build journal entries. Charts are a later phase.
 - No dark mode configuration added to `tailwind.config.js` (no `darkMode: 'class'`, no separate dark-mode utility classes). The design spec (README.md) makes no mention of dark mode, and it felt premature to add infrastructure for a feature that may not be needed. Can be added as a configuration extension to future design-system work without touching the codebase's Tailwind usage.
+
+## Add shadcn-svelte component library — 2026-08-05
+<!-- METRICS:add-shadcn-svelte-component-library -->
+- **Execution Duration:** __DURATION__ seconds
+- **Model:** __MODEL__
+- **Turns:** __TURNS__
+- **Input Tokens:** __INPUT_TOKENS__
+- **Output Tokens:** __OUTPUT_TOKENS__
+- **Estimated Cost:** __COST__
+
+**Decisions:**
+- Installed `shadcn-svelte` as a single `npm install` rather than running the CLI setup (`npx shadcn-svelte init`), since the interactive setup was blocking and the alternative — manual configuration — is simpler, more reproducible, and better suited to a CI environment. Manual setup involved creating a `shadcn.json` config file, adding the `utils.js` module with the `cn()` class-merging function, and extending the Tailwind color palette with shadcn's CSS variables.
+- Created `src/lib/utils.js` with a lightweight `cn()` function (variadic string filter) instead of importing a heavier utility library like `clsx` or `classnames`. The function is specific to shadcn's use case: merge Tailwind class strings and filter out empty ones. This matches the minimal dependencies philosophy of the project.
+- Implemented two sample components (`Button` and `Card`) in `src/components/ui/` with full Svelte 5 runes-mode syntax (`let { ... } = $props()`) rather than legacy `export let` bindings. Both components demonstrate the pattern: accept a `className` prop for composition, use `cn()` to merge base styles with user-provided classes, and render with Tailwind utilities. These components serve as templates for future UI components.
+- Defined theme colors as CSS custom properties (HSL-format variables like `--primary`, `--background`) in `src/app.css` `:root` and `.dark` blocks, matching shadcn's standard color system. Light mode defaults to a neutral (near-black/near-white) palette; dark mode inverts appropriately. This separates theme configuration from component styling and makes dark-mode support trivial.
+- Created `svelte.config.js` with a `~` alias pointing to `src/` for cleaner component imports (`~` instead of `$lib` for local imports). Configured this both in `kit.alias` (SvelteKit's native routing) and in `vite.config.js`'s `resolve.alias` for Vite's asset resolution.
+- Updated `tailwind.config.js` to add `theme.extend.colors`, `borderRadius`, and other shadcn-specific CSS variable references that the utility classes consume. This centralizes theme defaults while keeping the actual color values in `app.css` as CSS variables (which can be toggled for dark mode without recompiling).
+
+**Trade-offs / deviations from prompt:**
+- Did not use the `shadcn-svelte init` CLI to scaffold components, since it requires interactive prompts that block in a non-TTY environment. Instead, manually set up the configuration and wrote two example components (Button, Card) to demonstrate the pattern. This approach is reproducible, testable, and doesn't leave partial state if the command hangs or times out.
+- Did not install the full shadcn-svelte component registry. Only `Button` and `Card` were implemented as proof-of-concept; a real application would use the CLI or registry to add components as needed (Dropdown, Modal, Input, etc.). The infrastructure is in place for future additions without modification.
+- Leveraged Svelte 5 runes mode (`$props()`, slot forwarding without `$$restProps`) rather than Svelte 4 patterns, keeping the code current with the project's framework version (already forced to runes mode in `vite.config.js`). This meant bypassing shadcn-svelte's own CLI-generated components (which target a generic Svelte version) in favor of hand-written, project-specific implementations.
+- CSS variable syntax in `app.css` uses standard CSS custom properties (no Tailwind @apply directives for the base theme) to keep the theme truly separated from Tailwind config. Tailwind utilities reference these variables via `hsl(var(--color-name))` in `tailwind.config.js`'s extend block, avoiding the common pitfall of tight coupling between theme and utilities.
