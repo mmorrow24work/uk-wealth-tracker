@@ -1,0 +1,157 @@
+name: Autonomous Build Pipeline
+
+# Cadence: schedule is a 15-minute backstop, not the real interval -- the
+# pull_request(closed) trigger chains immediately into the next ready issue
+# as soon as one merges. concurrency below ensures only one run is ever
+# active, so overlapping triggers queue instead of racing.
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  pull_request:
+    types: [closed]
+  workflow_dispatch: {}
+
+concurrency:
+  group: claude-build
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+jobs:
+  build:
+    if: github.event_name != 'pull_request' || github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Record start time
+        id: timer
+        run: echo "start=$(date +%s)" >> "$GITHUB_OUTPUT"
+
+      - name: Pick next ready issue
+        id: pick
+        run: |
+          issue_json=$(gh issue list --state open --label status:ready --json number,title,labels --limit 100 \
+            | jq -c 'sort_by(.number) | .[0] // empty')
+
+          if [ -z "$issue_json" ]; then
+            echo "No status:ready issue found -- nothing to do this run."
+            echo "found=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          number=$(echo "$issue_json" | jq -r '.number')
+          title=$(echo "$issue_json" | jq -r '.title')
+          model_label=$(echo "$issue_json" | jq -r '[.labels[].name] | map(select(startswith("model:"))) | .[0] // "model:sonnet"')
+          case "${model_label#model:}" in
+            haiku) model_id="claude-haiku-4-5" ;;
+            opus) model_id="claude-opus-5" ;;
+            *) model_id="claude-sonnet-5" ;;
+          esac
+
+          echo "found=true" >> "$GITHUB_OUTPUT"
+          echo "number=$number" >> "$GITHUB_OUTPUT"
+          echo "title=$title" >> "$GITHUB_OUTPUT"
+          echo "model=$model_id" >> "$GITHUB_OUTPUT"
+
+      - name: Mark issue in-progress
+        if: steps.pick.outputs.found == 'true'
+        run: |
+          gh issue edit "${{ steps.pick.outputs.number }}" \
+            --remove-label "status:ready" --add-label "status:in-progress"
+
+      - name: Run Claude Code
+        if: steps.pick.outputs.found == 'true'
+        id: claude
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          claude_args: "--model ${{ steps.pick.outputs.model }} --max-turns 30"
+          base_branch: main
+          branch_prefix: "issue-"
+          display_report: true
+          prompt: |
+            Implement GitHub issue #${{ steps.pick.outputs.number }} ("${{ steps.pick.outputs.title }}")
+            in this repository, fully and to a working, tested state. Read CLAUDE.md, README.md and
+            DESIGN.md first for architecture and conventions.
+
+            When the implementation is complete:
+            1. Open a pull request whose description includes the line "Closes #${{ steps.pick.outputs.number }}".
+            2. Append one entry to docs/journal.md, following the format documented at the top of that
+               file. Use today's date. Write the "Decisions" and "Trade-offs / deviations from prompt"
+               sections yourself, in the same voice and level of detail as any existing entries. For the
+               <!-- METRICS:... --> block, copy the six placeholder tokens (__DURATION__, __MODEL__,
+               __TURNS__, __INPUT_TOKENS__, __OUTPUT_TOKENS__, __COST__) verbatim into the new entry --
+               do not fill them in yourself; a later automated step replaces them with the real numbers
+               for this run.
+
+      - name: Patch journal metrics
+        if: steps.pick.outputs.found == 'true' && steps.claude.outputs.branch_name != ''
+        continue-on-error: true
+        run: |
+          git fetch origin "${{ steps.claude.outputs.branch_name }}"
+          git checkout "${{ steps.claude.outputs.branch_name }}"
+
+          end=$(date +%s)
+          duration=$(( end - ${{ steps.timer.outputs.start }} ))
+          model="${{ steps.pick.outputs.model }}"
+
+          execution_file="${{ steps.claude.outputs.execution_file }}"
+          turns=0
+          input_tokens=0
+          output_tokens=0
+          # Best-effort parse of the Claude Code execution transcript. Schema
+          # isn't officially pinned down; fall back to 0 rather than failing
+          # the step if the shape doesn't match.
+          if [ -n "$execution_file" ] && [ -f "$execution_file" ]; then
+            turns=$(jq '[.[] | select(.type=="assistant")] | length' "$execution_file" 2>/dev/null || echo 0)
+            input_tokens=$(jq '[.. | .input_tokens? // empty] | add // 0' "$execution_file" 2>/dev/null || echo 0)
+            output_tokens=$(jq '[.. | .output_tokens? // empty] | add // 0' "$execution_file" 2>/dev/null || echo 0)
+          fi
+
+          case "$model" in
+            claude-opus-5) in_rate=5; out_rate=25 ;;
+            claude-haiku-4-5) in_rate=1; out_rate=5 ;;
+            *) in_rate=3; out_rate=15 ;;
+          esac
+          cost=$(awk -v i="$input_tokens" -v o="$output_tokens" -v ir="$in_rate" -v orr="$out_rate" \
+            'BEGIN { printf "%.4f", (i/1000000*ir) + (o/1000000*orr) }')
+
+          sed -i \
+            -e "s/__DURATION__/${duration}/" \
+            -e "s/__MODEL__/${model}/" \
+            -e "s/__TURNS__/${turns}/" \
+            -e "s/__INPUT_TOKENS__/${input_tokens}/" \
+            -e "s/__OUTPUT_TOKENS__/${output_tokens}/" \
+            -e "s/__COST__/${cost}/" \
+            docs/journal.md
+
+          git config user.name "claude-build-pipeline"
+          git config user.email "actions@users.noreply.github.com"
+          git add docs/journal.md
+          git commit -m "Fill in journal metrics for issue #${{ steps.pick.outputs.number }}" || echo "Nothing to commit"
+          git push origin "HEAD:${{ steps.claude.outputs.branch_name }}"
+
+      - name: Mark issue in-review
+        if: steps.pick.outputs.found == 'true' && steps.claude.outputs.branch_name != ''
+        run: |
+          gh issue edit "${{ steps.pick.outputs.number }}" \
+            --remove-label "status:in-progress" --add-label "status:in-review"
+
+      - name: Enable auto-merge
+        if: steps.pick.outputs.found == 'true' && steps.claude.outputs.branch_name != ''
+        run: |
+          pr_number=$(gh pr list --head "${{ steps.claude.outputs.branch_name }}" --json number --jq '.[0].number')
+          if [ -n "$pr_number" ]; then
+            gh pr merge "$pr_number" --auto --squash
+          else
+            echo "No PR found for branch ${{ steps.claude.outputs.branch_name }} -- skipping auto-merge."
+          fi

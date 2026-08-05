@@ -251,7 +251,7 @@ uk-wealth-tracker/
 ## Getting Started
 
 ```bash
-git clone https://github.com/mmorrow2012/uk-wealth-tracker.git
+git clone https://github.com/mmorrow24work/uk-wealth-tracker.git
 cd uk-wealth-tracker
 npm install
 npm run dev

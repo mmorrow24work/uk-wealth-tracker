@@ -63,7 +63,7 @@ Reactive charts updating on slider input, state shared across pension/forecast/t
 - Zero infrastructure cost
 - Fits personal-use scope
 - GitHub Actions for any scheduled jobs (e.g. price fetches)
-- Repo: `mmorrow2012/uk-wealth-tracker`
+- Repo: `mmorrow24work/uk-wealth-tracker` (fork of `mmorrow2012/uk-wealth-tracker`, used as the working repo for full admin access — see `upstream` git remote)
 
 ---
 
