@@ -4,3 +4,6 @@
 // Types live in ./types.js (JSDoc only): `@type {import('$lib/types.js').AppData}`.
 export * from './enums.js';
 export * from './model.js';
+
+// GitHub Gist persistence — the only place any feature tab should read/write stored data from.
+export * from './gist.js';
