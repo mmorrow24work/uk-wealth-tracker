@@ -40,8 +40,12 @@ jobs:
       - name: Pick next ready issue
         id: pick
         run: |
-          issue_json=$(gh issue list --state open --label status:ready --json number,title,labels --limit 100 \
-            | jq -c 'sort_by(.number) | .[0] // empty')
+          # Sort by milestone number first, then issue number within it, so
+          # issues added later (e.g. splitting an oversized issue) still slot
+          # into the correct execution order by milestone rather than always
+          # sorting to the back by raw issue number.
+          issue_json=$(gh issue list --state open --label status:ready --json number,title,labels,milestone --limit 100 \
+            | jq -c 'sort_by([(.milestone.number // 999), .number]) | .[0] // empty')
 
           if [ -z "$issue_json" ]; then
             echo "No status:ready issue found -- nothing to do this run."
