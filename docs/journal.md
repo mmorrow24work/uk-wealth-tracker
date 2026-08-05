@@ -74,3 +74,26 @@ Entry format. The Claude Code session that implements the issue writes everythin
 - `.github/workflows/ci.yml` still has no `npm test` step: the push was rejected because the app token lacks the `workflows` permission, so the one-line addition (`- name: Unit tests` / `run: npm test`) has to be made by hand. Until then the suite runs locally but not in CI, and `build`/`check`/`lint` are the only gates on a PR.
 - No `PROJECT_PLAN.md`, despite CLAUDE.md mentioning one. `docs/journal.md` now fills that role — a second overlapping build log would be one more thing to keep in sync.
 - Nothing consumes the model yet: `store.js` (#5) and `gist.js` (#3) are separate issues, so this PR adds types, factories and validation but no wiring. `src/lib/index.js` re-exports the public surface so those issues can import from `$lib`.
+
+## Implement GitHub Gist persistence layer (lib/gist.js) — 2026-08-05
+<!-- METRICS:implement-github-gist-persistence-layer-lib-gist-js -->
+- **Execution Duration:** __DURATION__ seconds
+- **Model:** __MODEL__
+- **Turns:** __TURNS__
+- **Input Tokens:** __INPUT_TOKENS__
+- **Output Tokens:** __OUTPUT_TOKENS__
+- **Estimated Cost:** __COST__
+
+**Decisions:**
+- Single gate, not two: `isGistConfigured()` checks only `VITE_GITHUB_TOKEN`. `VITE_GIST_ID` is optional — without it the module creates a private Gist itself on first `saveAppData()` call and caches the returned id in `localStorage` under `uk-wealth-tracker:gist-id`, since a Vite env var is fixed at build time and has no other way to remember an id the app generated at runtime. The issue's "create-if-missing" therefore covers two distinct cases: no Gist at all (create one), and an existing Gist that just doesn't have our file yet (the Gist PATCH API creates a named file that doesn't exist, so this needed no special-casing).
+- `localStorage` fallback triggers on token absence alone, not "token or gist id missing" — a missing gist id with a token present is the create-if-missing path above, not a fallback. Read this from the issue text pairing "local dev without Gist setup" with "no token/gist ID is configured": the scenario being described is having configured neither, not partial configuration.
+- Reused `normaliseAppData`/`createAppData` from `./model.js` (#43) on every read rather than trusting Gist content directly — a hand-edited Gist, one written by an older schema version, or simply an empty file all need to become a well-typed `AppData` the same way a corrupt `localStorage` value does. `loadAppData()` only ever throws `GistError` for "this Gist is configured but unreachable/unreadable" (bad token, deleted Gist, network failure, invalid JSON); "nothing saved yet" always resolves to `createAppData()` instead.
+- Added a `GistError` class (carries the HTTP `status` when there was a response) so callers — the future `store.js` (#5) — can distinguish "show a sync error" from "this is just a first run" by catching a specific type rather than string-matching a message.
+- Added `getPersistenceMode()` (`'gist' | 'local'`) as a thin wrapper over `isGistConfigured()`. Not asked for directly, but the nav shell will want to show the user which storage they're on, and it was a one-line addition once `isGistConfigured` existed.
+- Wrote `readFileContent()` to follow a Gist file's `raw_url` when GitHub reports it `truncated` (files over 1MB return partial inline `content`). Our documents are small today, but a silently-truncated read producing a plausible-looking-but-wrong `AppData` would be a nasty bug to chase later, and the correct handling is only a few lines.
+- Kept the local JSDoc `AppData` reference in `gist.js` as `import('./types.js').AppData` inline rather than a local `@typedef {import('./types.js').AppData} AppData` (the pattern every other `$lib` module uses): `src/lib/index.js` re-exports every module with `export *`, and `svelte-check` treats two same-named top-level typedefs across re-exported modules as an ambiguous export even though only `model.js`'s was ever meant to be the public one. Filed as a one-off local convention with a comment rather than touching `model.js`'s already-established pattern.
+
+**Trade-offs / deviations from prompt:**
+- The GitHub token is a `VITE_`-prefixed env var, so it's inlined into the client bundle and readable by anyone who opens the deployed app's JS — not something this module can fix, since it's `DESIGN.md`'s stated persistence design (`.env.local` → Vite → client) for a single-user, self-hosted, personal-use app. Flagging it in the module doc comment rather than silently shipping it.
+- No retry/backoff or optimistic-concurrency (ETag) handling on Gist writes — a second device saving between this app's read and write would silently overwrite it. Out of scope for a single-user app with no `store.js` yet to even trigger concurrent writes; worth revisiting if multi-device use ever matters.
+- Re-attempted `.github/workflows/ci.yml`'s missing `npm test` step (flagged as a gap in the previous PR's journal entry) and hit the same wall: the app token lacks `workflows` permission, so the push was rejected. Reverted that hunk in a follow-up commit rather than blocking this PR on it; `npm test` (18 new tests here, 147 total) still only runs locally and in `npm run lint`/`check`/`build`'s absence from CI is unchanged from the prior PR.
