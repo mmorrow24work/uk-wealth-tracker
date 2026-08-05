@@ -10,7 +10,7 @@ A personal UK net worth, tax and retirement planning app — self-hosted on GitH
 
 - **Framework:** SvelteKit
 - **UI:** shadcn-svelte + Tailwind CSS
-- **Charts:** Recharts (or Chart.js — TBD in scaffold conversation)
+- **Charts:** LayerChart (Svelte-native, D3-based — Recharts is React-only and doesn't apply to this SvelteKit app)
 - **Persistence:** GitHub Gist (JSON)
 - **Hosting:** GitHub Pages
 - **CI/CD:** GitHub Actions

@@ -102,12 +102,37 @@ jobs:
                do not fill them in yourself; a later automated step replaces them with the real numbers
                for this run.
 
+      - name: Find PR created for this issue
+        # The action's branch_name/session_id outputs are only populated in
+        # its own "tag mode" (auto-branch-creation for @claude comment
+        # triggers). In our schedule/dispatch-triggered "agent mode", Claude
+        # creates the branch itself via Bash/git as instructed in the
+        # prompt, so the action has no visibility into it even though the
+        # PR genuinely exists. Detect it directly via the "Closes #N" text
+        # we told Claude to include.
+        if: steps.pick.outputs.found == 'true'
+        id: findpr
+        run: |
+          pr_json=$(gh pr list --state open --json number,headRefName,body --limit 100 \
+            | jq -c --arg n "${{ steps.pick.outputs.number }}" \
+              '[.[] | select(.body | test("[Cc]loses #" + $n + "(\\D|$)"))] | .[0] // empty')
+
+          if [ -z "$pr_json" ]; then
+            echo "No PR found referencing Closes #${{ steps.pick.outputs.number }} -- Claude did not finish (e.g. hit max-turns)."
+            echo "found=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "found=true" >> "$GITHUB_OUTPUT"
+          echo "number=$(echo "$pr_json" | jq -r '.number')" >> "$GITHUB_OUTPUT"
+          echo "branch=$(echo "$pr_json" | jq -r '.headRefName')" >> "$GITHUB_OUTPUT"
+
       - name: Patch journal metrics
-        if: steps.pick.outputs.found == 'true' && steps.claude.outputs.branch_name != ''
+        if: steps.pick.outputs.found == 'true' && steps.findpr.outputs.found == 'true'
         continue-on-error: true
         run: |
-          git fetch origin "${{ steps.claude.outputs.branch_name }}"
-          git checkout "${{ steps.claude.outputs.branch_name }}"
+          git fetch origin "${{ steps.findpr.outputs.branch }}"
+          git checkout "${{ steps.findpr.outputs.branch }}"
 
           end=$(date +%s)
           duration=$(( end - ${{ steps.timer.outputs.start }} ))
@@ -147,20 +172,15 @@ jobs:
           git config user.email "actions@users.noreply.github.com"
           git add docs/journal.md
           git commit -m "Fill in journal metrics for issue #${{ steps.pick.outputs.number }}" || echo "Nothing to commit"
-          git push origin "HEAD:${{ steps.claude.outputs.branch_name }}"
+          git push origin "HEAD:${{ steps.findpr.outputs.branch }}"
 
       - name: Mark issue in-review
-        if: steps.pick.outputs.found == 'true' && steps.claude.outputs.branch_name != ''
+        if: steps.pick.outputs.found == 'true' && steps.findpr.outputs.found == 'true'
         run: |
           gh issue edit "${{ steps.pick.outputs.number }}" \
             --remove-label "status:in-progress" --add-label "status:in-review"
 
       - name: Enable auto-merge
-        if: steps.pick.outputs.found == 'true' && steps.claude.outputs.branch_name != ''
+        if: steps.pick.outputs.found == 'true' && steps.findpr.outputs.found == 'true'
         run: |
-          pr_number=$(gh pr list --head "${{ steps.claude.outputs.branch_name }}" --json number --jq '.[0].number')
-          if [ -n "$pr_number" ]; then
-            gh pr merge "$pr_number" --auto --squash
-          else
-            echo "No PR found for branch ${{ steps.claude.outputs.branch_name }} -- skipping auto-merge."
-          fi
+          gh pr merge "${{ steps.findpr.outputs.number }}" --auto --squash
