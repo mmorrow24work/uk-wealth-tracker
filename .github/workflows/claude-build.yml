@@ -75,7 +75,11 @@ jobs:
         uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          claude_args: "--model ${{ steps.pick.outputs.model }} --max-turns 30"
+          # Default allowedTools for non-comment-triggered runs is read-only
+          # (Glob, Grep, LS, Read) -- Bash/Write/Edit must be granted
+          # explicitly or every scaffold/feature issue fails with tool
+          # permission denials before writing anything.
+          claude_args: "--model ${{ steps.pick.outputs.model }} --max-turns 30 --allowedTools Bash,Write,Edit,Read,Glob,Grep,LS"
           base_branch: main
           branch_prefix: "issue-"
           display_report: true
