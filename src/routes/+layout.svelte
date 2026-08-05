@@ -3,6 +3,7 @@
 	import { page } from '$app/state';
 	import { resolve } from '$app/paths';
 	import { NAV_TABS, isActiveTab } from '$lib/nav.js';
+	import '../app.css';
 
 	let { children } = $props();
 </script>
@@ -11,15 +12,22 @@
 	<link rel="icon" href={favicon} />
 </svelte:head>
 
-<div class="app-shell">
-	<header class="app-header">
-		<span class="app-title">uk-wealth-tracker</span>
+<div class="flex flex-col min-h-screen">
+	<header class="flex items-center gap-6 px-4 py-3 border-b border-gray-200 flex-wrap">
+		<span class="font-semibold">uk-wealth-tracker</span>
 		<nav aria-label="Main">
-			<ul class="tabs">
+			<ul class="flex flex-wrap gap-1 list-none m-0 p-0">
 				{#each NAV_TABS as tab (tab.id)}
 					{@const active = isActiveTab(page.url.pathname, tab.href)}
 					<li>
-						<a href={resolve(tab.href)} class:active aria-current={active ? 'page' : undefined}>
+						<a
+							href={resolve(tab.href)}
+							class:active
+							aria-current={active ? 'page' : undefined}
+							class="inline-block px-3 py-1.5 rounded text-gray-900 no-underline text-sm hover:bg-gray-100 {active
+								? 'bg-black text-white'
+								: ''}"
+						>
 							{tab.label}
 						</a>
 					</li>
@@ -28,60 +36,7 @@
 		</nav>
 	</header>
 
-	<main class="app-main">
+	<main class="flex-1 px-4 py-6">
 		{@render children()}
 	</main>
 </div>
-
-<style>
-	.app-shell {
-		display: flex;
-		flex-direction: column;
-		min-height: 100vh;
-	}
-
-	.app-header {
-		display: flex;
-		align-items: center;
-		gap: 1.5rem;
-		padding: 0.75rem 1rem;
-		border-bottom: 1px solid #ddd;
-		flex-wrap: wrap;
-	}
-
-	.app-title {
-		font-weight: 600;
-	}
-
-	.tabs {
-		display: flex;
-		flex-wrap: wrap;
-		gap: 0.25rem;
-		list-style: none;
-		margin: 0;
-		padding: 0;
-	}
-
-	.tabs a {
-		display: inline-block;
-		padding: 0.4rem 0.75rem;
-		border-radius: 0.375rem;
-		color: inherit;
-		text-decoration: none;
-		font-size: 0.9rem;
-	}
-
-	.tabs a:hover {
-		background: #f0f0f0;
-	}
-
-	.tabs a.active {
-		background: #1a1a1a;
-		color: #fff;
-	}
-
-	.app-main {
-		flex: 1;
-		padding: 1.5rem 1rem;
-	}
-</style>
