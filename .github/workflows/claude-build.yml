@@ -105,16 +105,15 @@ jobs:
           # (Glob, Grep, LS, Read) -- Bash/Write/Edit must be granted
           # explicitly or every scaffold/feature issue fails with tool
           # permission denials before writing anything.
+          # max-turns 60 was too tight a margin: a debug run with
+          # show_full_output confirmed issue #4 (nav shell + routing, not an
+          # oversized task) needed 58 turns of genuinely necessary work, not
+          # an inefficiency loop -- it was failing right at the boundary.
+          # 100 gives legitimate multi-file issues comfortable headroom.
           claude_args: "--model ${{ steps.pick.outputs.model }} --max-turns 100 --allowedTools Bash,Write,Edit,Read,Glob,Grep,LS"
           base_branch: main
           branch_prefix: "issue-"
           display_report: true
-          # TEMPORARY debug aid: two issues in a row hit error_max_turns at
-          # ~60-61 turns, including one that shouldn't have been oversized
-          # (nav shell + routing). Bumping the cap and showing full output
-          # once to see what's actually consuming turns, since guessing
-          # again isn't worth the ~$2-3/attempt cost. Revert after diagnosis.
-          show_full_output: true
           prompt: |
             Implement GitHub issue #${{ steps.pick.outputs.number }} ("${{ steps.pick.outputs.title }}")
             in this repository, fully and to a working, tested state. Read CLAUDE.md, README.md and
