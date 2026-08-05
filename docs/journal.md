@@ -119,3 +119,23 @@ Entry format. The Claude Code session that implements the issue writes everythin
 - The nav shell has no visual design system behind it yet — plain scoped CSS in `+layout.svelte` (flex header, pill-style tab links, dark "active" background), since Tailwind (#40) and shadcn-svelte (#41) are both still open. Expect this stylesheet to be deleted wholesale once those land rather than incrementally migrated.
 - `resolve()` from `$app/paths` is a newer SvelteKit API (this project pins `@sveltejs/kit` `^2.63.0`, actually installed at 2.70.2) tied to a project with no `svelte.config.js` at all — config here lives inline in `vite.config.js`'s `sveltekit()` call, which predates this issue and wasn't touched. No `paths.base` is configured, so `resolve('/tax')` currently resolves to the same `/tax` `isActiveTab()` already expects; if a base path is ever added (e.g. for GitHub Pages project-page hosting in #7), `page.url.pathname` used by `isActiveTab()` would need rechecking against the same base-path handling.
 - Left `npm run dev`/manual click-through undone in favour of the `build` + `preview` + `curl` check described above, since this environment has no browser to drive; the rendered HTML was inspected directly instead of taking screenshots.
+
+## Wire up VITE_GITHUB_TOKEN / VITE_GIST_ID env handling — 2026-08-05
+<!-- METRICS:wire-up-vite-github-token-vite-gist-id-env-handling -->
+- **Execution Duration:** __DURATION__ seconds
+- **Model:** __MODEL__
+- **Turns:** __TURNS__
+- **Input Tokens:** __INPUT_TOKENS__
+- **Output Tokens:** __OUTPUT_TOKENS__
+- **Estimated Cost:** __COST__
+
+**Decisions:**
+- The core environment variable reading was already implemented in `lib/gist.js` (lines 68–81: `getEnv()`, `getToken()`, `getConfiguredGistId()`) and tested in `gist.test.js` (lines 81–94: `isGistConfigured / getPersistenceMode`). The issue's request was to document the user-facing setup, not to implement it. Expanded the README's "Getting Started" section from a one-liner into a subsection that breaks installation and environment setup into discrete steps.
+- Took a step-by-step format for environment setup (copy `.env.example`, create GitHub token, paste token, optionally set Gist ID, restart dev server) rather than a dense paragraph. Each step is actionable and maps to a specific GitHub URL or action, so a user can follow it without leaving the README.
+- Included an explicit security note about `.env.local` being in `.gitignore` and the token being embedded in the client bundle (as already documented in the `gist.js` module comment at line 19). Developers new to the project should know not to paste tokens into git or build artifacts.
+- Documented the optional nature of `VITE_GIST_ID` and the create-if-missing behavior upfront, so users understand that a blank Gist ID is not an error — the app will create a Gist on first save and cache its id locally.
+
+**Trade-offs / deviations from prompt:**
+- The `.env.example` file already existed and was already well-commented. No changes were made to it since the documentation at the top already covers the two variables and explains their purpose in plain language. Adding more detail to `.env.example` felt like documentation duplication; the README is the proper place for user-facing setup instructions.
+- Did not add a separate docs file for environment setup (e.g. `docs/SETUP.md`). The issue's scope is to document setup in README.md per the existing instruction "a short section in README documenting setup", and one-page setup docs are easier to keep in sync when they live in README rather than as a separate file.
+- The `.env.local` path is not configurable (Vite's convention is fixed). No environment variable added to let users point to a different `.env` file. Keep the setup simple.
