@@ -250,6 +250,8 @@ uk-wealth-tracker/
 
 ## Getting Started
 
+### Installation
+
 ```bash
 git clone https://github.com/mmorrow24work/uk-wealth-tracker.git
 cd uk-wealth-tracker
@@ -257,7 +259,44 @@ npm install
 npm run dev
 ```
 
-Set a `VITE_GITHUB_TOKEN` and `VITE_GIST_ID` in `.env.local` for Gist persistence.
+### Environment Setup
+
+Data persistence uses GitHub Gist, configured via environment variables in a `.env.local` file. Two variables are available:
+
+- **`VITE_GITHUB_TOKEN`** — A GitHub personal access token with the `gist` scope. Without this, the app uses `localStorage` only (data persists in the current browser only).
+- **`VITE_GIST_ID`** — (Optional) An existing private Gist's id where data will be stored. If a token is set but this is left blank, the app creates a new private Gist on first save and caches its id in `localStorage`.
+
+**To enable Gist persistence:**
+
+1. Copy `.env.example` to `.env.local`:
+   ```bash
+   cp .env.example .env.local
+   ```
+
+2. Create a GitHub personal access token:
+   - Visit https://github.com/settings/tokens
+   - Click "Generate new token (classic)"
+   - Give it a name (e.g. `uk-wealth-tracker`)
+   - Select the `gist` scope
+   - Copy the token
+
+3. Paste the token into `.env.local` as `VITE_GITHUB_TOKEN`:
+   ```env
+   VITE_GITHUB_TOKEN=ghp_your_token_here
+   ```
+
+4. Optionally, create a private Gist to use as storage (or leave `VITE_GIST_ID` blank and let the app create one):
+   - Visit https://gist.github.com/
+   - Click "New Gist" and create a private, empty Gist
+   - Copy its id from the URL (format: a 32-character hexadecimal string)
+   - Add it to `.env.local`:
+   ```env
+   VITE_GIST_ID=your_gist_id_here
+   ```
+
+5. Restart the dev server (`npm run dev`). On first save, the app will sync data to the Gist.
+
+**Important:** `.env.local` is in `.gitignore` and will not be committed. Keep your token safe and never paste it into version control.
 
 ---
 
