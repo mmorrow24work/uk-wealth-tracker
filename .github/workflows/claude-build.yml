@@ -79,7 +79,7 @@ jobs:
           # (Glob, Grep, LS, Read) -- Bash/Write/Edit must be granted
           # explicitly or every scaffold/feature issue fails with tool
           # permission denials before writing anything.
-          claude_args: "--model ${{ steps.pick.outputs.model }} --max-turns 30 --allowedTools Bash,Write,Edit,Read,Glob,Grep,LS"
+          claude_args: "--model ${{ steps.pick.outputs.model }} --max-turns 60 --allowedTools Bash,Write,Edit,Read,Glob,Grep,LS"
           base_branch: main
           branch_prefix: "issue-"
           display_report: true
