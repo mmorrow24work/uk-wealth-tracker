@@ -44,6 +44,21 @@ jobs:
         id: timer
         run: echo "start=$(date +%s)" >> "$GITHUB_OUTPUT"
 
+      - name: Force-close the issue this PR closes
+        # GitHub's automatic "Closes #N" issue-closing has not fired
+        # reliably on this fork (confirmed on two separate merges: #43->#2
+        # and #44->#3, both left the issue open despite a correctly
+        # recognized closingIssuesReferences link). Close it explicitly
+        # instead of depending on that behavior.
+        if: github.event_name == 'pull_request' && github.event.pull_request.merged == true
+        run: |
+          issue_number=$(echo "${{ github.event.pull_request.body }}" | grep -ioP '[Cc]loses #\K\d+' | head -1)
+          if [ -n "$issue_number" ]; then
+            gh issue close "$issue_number" --reason completed || echo "Issue #$issue_number already closed or close failed -- continuing."
+          else
+            echo "No 'Closes #N' reference found in PR body -- nothing to close."
+          fi
+
       - name: Pick next ready issue
         id: pick
         run: |
