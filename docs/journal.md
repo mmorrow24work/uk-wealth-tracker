@@ -139,3 +139,24 @@ Entry format. The Claude Code session that implements the issue writes everythin
 - The `.env.example` file already existed and was already well-commented. No changes were made to it since the documentation at the top already covers the two variables and explains their purpose in plain language. Adding more detail to `.env.example` felt like documentation duplication; the README is the proper place for user-facing setup instructions.
 - Did not add a separate docs file for environment setup (e.g. `docs/SETUP.md`). The issue's scope is to document setup in README.md per the existing instruction "a short section in README documenting setup", and one-page setup docs are easier to keep in sync when they live in README rather than as a separate file.
 - The `.env.local` path is not configurable (Vite's convention is fixed). No environment variable added to let users point to a different `.env` file. Keep the setup simple.
+
+## Add Tailwind CSS — 2026-08-05
+<!-- METRICS:add-tailwind-css -->
+- **Execution Duration:** __DURATION__ seconds
+- **Model:** __MODEL__
+- **Turns:** __TURNS__
+- **Input Tokens:** __INPUT_TOKENS__
+- **Output Tokens:** __OUTPUT_TOKENS__
+- **Estimated Cost:** __COST__
+
+**Decisions:**
+- Installed Tailwind CSS v4 with the new `@tailwindcss/postcss` plugin rather than v3 — v4 is the current release and recommended for new projects, and since this is early-stage scaffolding with no legacy dependencies, choosing v4 from the start avoids a migration later.
+- Created a minimal `tailwind.config.js` with just `content` path scanning for Svelte files (`./src/**/*.{html,js,svelte,ts}`), `theme.extend: {}`, and empty `plugins`. No custom theme is needed yet; shadcn-svelte (#41) will handle component-level design tokens when it lands.
+- Wrote `src/app.css` as a placeholder comment rather than with `@tailwind` directives, since Tailwind v4's PostCSS plugin processes the styles automatically without needing explicit directives in the CSS file. The CSS is imported in the root layout, and the PostCSS step (configured in `postcss.config.js`) handles everything.
+- Refactored the nav shell's inline `<style>` block into Tailwind utility classes: `flex`, `flex-col`, `min-h-screen`, `gap-6`, `px-4`, `py-3`, `border-b`, `border-gray-200`, etc. The visual design (dark active tab background, light hover state) is preserved exactly; only the implementation changes from CSS custom properties to Tailwind's utility API.
+- Used conditional class binding (`class:active`) combined with string interpolation (`{active ? 'bg-black text-white' : ''}`) to toggle the dark background on the active tab. This is idiomatic Svelte and avoids needing a CSS variable or extra scoped `<style>` block for the dynamic state.
+
+**Trade-offs / deviations from prompt:**
+- Did not add shadcn-svelte or its integration (e.g., installing `shadcn-svelte` CLI, configuring `components.json`, copying component templates). That is issue #41, a distinct task. Tailwind alone is enough to style the nav shell and provide a foundation for later components.
+- Left the chart library decision (Recharts vs Chart.js) unchanged — no charting dependency was installed here, per the earlier build journal entries. Charts are a later phase.
+- No dark mode configuration added to `tailwind.config.js` (no `darkMode: 'class'`, no separate dark-mode utility classes). The design spec (README.md) makes no mention of dark mode, and it felt premature to add infrastructure for a feature that may not be needed. Can be added as a configuration extension to future design-system work without touching the codebase's Tailwind usage.
