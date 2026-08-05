@@ -26,7 +26,14 @@ jobs:
     if: github.event_name != 'pull_request' || github.event.pull_request.merged == true
     runs-on: ubuntu-latest
     env:
-      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # Merges performed with the default GITHUB_TOKEN don't trigger further
+      # workflow runs (GitHub's anti-recursion protection) -- confirmed
+      # empirically: a human-merged PR chained correctly, but the pipeline's
+      # own GITHUB_TOKEN-merged PR did not, silently falling back to the
+      # 15-min cron between every issue. A PAT belonging to a real account
+      # isn't subject to that exemption, so gh pr merge --auto (and every
+      # other gh call in this job) uses it instead.
+      GH_TOKEN: ${{ secrets.GH_PAT }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
