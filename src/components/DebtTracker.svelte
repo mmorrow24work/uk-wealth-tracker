@@ -19,6 +19,11 @@
 	 * snapshot of it in the log entry, so "Revert" on a removed entry re-adds the exact same record
 	 * (same id, so it is recognisably "the same debt" again rather than a new one) without a second
 	 * "added" entry cluttering the log — the log already shows the removal as undone.
+	 *
+	 * `activityLog` is shared with `InvestmentHoldings` (issue #8) — both entity types live in one
+	 * array — so this component's own `ActivityLog` instance only ever shows the `debt` entries, and
+	 * `revertEntityRemoval` is called with `'debt'` as the expected type so a stale click can never
+	 * mark an investment's removal reverted and hand back a non-`Debt` snapshot for `debts` to absorb.
 	 */
 	import { DEBT_TYPES, DEBT_TYPE_LABELS } from '$lib/enums.js';
 	import { createDebt } from '$lib/model.js';
@@ -119,7 +124,7 @@
 
 	/** @param {string} logEntryId */
 	function revertDebtRemoval(logEntryId) {
-		const { log, entity } = revertEntityRemoval(activityLog, logEntryId);
+		const { log, entity } = revertEntityRemoval(activityLog, logEntryId, 'debt');
 		activityLog = log;
 		if (entity) debts = [...debts, /** @type {import('$lib/types.js').Debt} */ (entity)];
 	}
@@ -292,5 +297,8 @@
 		</p>
 	</Card>
 
-	<ActivityLog entries={activityLog} onRevert={revertDebtRemoval} />
+	<ActivityLog
+		entries={activityLog.filter((entry) => entry.entity_type === 'debt')}
+		onRevert={revertDebtRemoval}
+	/>
 </div>
