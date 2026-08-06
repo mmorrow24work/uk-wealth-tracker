@@ -14,5 +14,8 @@ export * from './activity-log.js';
 // Auto-invest fill — compound-growth snapshots for months the user skipped.
 export * from './auto-invest.js';
 
+// Three-scenario net worth projections — see the Forecast tab's ForecastProjections component.
+export * from './forecast.js';
+
 // GitHub Gist persistence — the only place any feature tab should read/write stored data from.
 export * from './gist.js';

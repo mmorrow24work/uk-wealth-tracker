@@ -166,7 +166,7 @@ export function monthlyGrowthRate(annualRatePct) {
 /**
  * Growth actually credited to a holding once its annual fund fee (OCF) is taken off. Fees are
  * charged on the fund value, so they compound against growth rather than subtracting from it:
- * `(1 + g)(1 - f) - 1`, not `g - f`. At 5% growth and a 0.22% OCF that is 4.7689%, not 4.78%.
+ * `(1 + g)(1 - f) - 1`, not `g - f`. At 5% growth and a 0.22% OCF that is 4.769%, not 4.78%.
  *
  * A holding's `fund_fee` is the only per-holding rate the data model records, so it is what makes
  * one holding compound differently from another under a single growth assumption.
