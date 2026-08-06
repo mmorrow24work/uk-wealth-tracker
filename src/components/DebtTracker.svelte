@@ -1,7 +1,13 @@
 <script>
 	/**
 	 * Debt entry UI + debt-to-investment (D/I) ratio display — README.md → "Net Worth Tracking":
-	 * "Debt tracking with D/I ratio (debt-to-investment %; <14% healthy, >18% concern)".
+	 * "Debt tracking with D/I ratio (debt-to-investment %; <14% healthy, >18% concern)" and
+	 * "Mortgage debt toggle (exclude from net worth when property equity already tracked)".
+	 *
+	 * Every debt gets the generic `exclude_from_net_worth` checkbox; `mortgage`-typed debts
+	 * additionally default that checkbox to checked (`defaultsToExcludedFromNetWorth`, $lib/debt.js)
+	 * and get mortgage-specific copy explaining why, since a mortgage is the one debt type that
+	 * routinely double-counts against a property's equity once that is tracked separately.
 	 *
 	 * `investments` is read-only here (holding entry is issue #8's monthly snapshot form); `debts`
 	 * is owned by this component and passed back via the bindable prop so a parent — eventually the
@@ -14,6 +20,7 @@
 		DEBT_TO_INVESTMENT_THRESHOLDS,
 		debtToInvestmentRatio,
 		debtToInvestmentStatus,
+		defaultsToExcludedFromNetWorth,
 		sumDebtBalances,
 		sumInvestmentValues
 	} from '$lib/debt.js';
@@ -53,6 +60,15 @@
 	/** @param {number} amount */
 	function formatMoney(amount) {
 		return currencyFormatter.format(amount);
+	}
+
+	const MORTGAGE_EXCLUDE_HINT =
+		"Mortgages are usually excluded once your property's equity (value minus mortgage) is tracked separately on the Property tab — otherwise the same debt is counted twice.";
+
+	/** @param {import('$lib/enums.js').DebtType} newType */
+	function handleTypeChange(newType) {
+		type = newType;
+		excludeFromNetWorth = defaultsToExcludedFromNetWorth(type);
 	}
 
 	function addDebt() {
@@ -108,18 +124,30 @@
 								{DEBT_TYPE_LABELS[debt.type]} · {formatMoney(debt.balance)}
 							</span>
 						</div>
-						<div class="flex items-center gap-3">
-							<label class="flex items-center gap-1.5 text-sm text-muted-foreground">
-								<input
-									type="checkbox"
-									checked={debt.exclude_from_net_worth}
-									onchange={() => toggleExclude(debt.id)}
-								/>
-								Exclude from net worth
-							</label>
-							<Button variant="ghost" size="sm" type="button" onclick={() => removeDebt(debt.id)}>
-								Remove
-							</Button>
+						<div class="flex flex-col items-end gap-1">
+							<div class="flex items-center gap-3">
+								<label
+									class="flex items-center gap-1.5 text-sm text-muted-foreground"
+									title={debt.type === 'mortgage' ? MORTGAGE_EXCLUDE_HINT : undefined}
+								>
+									<input
+										type="checkbox"
+										checked={debt.exclude_from_net_worth}
+										onchange={() => toggleExclude(debt.id)}
+									/>
+									{debt.type === 'mortgage'
+										? 'Exclude — property equity tracked separately'
+										: 'Exclude from net worth'}
+								</label>
+								<Button variant="ghost" size="sm" type="button" onclick={() => removeDebt(debt.id)}>
+									Remove
+								</Button>
+							</div>
+							{#if debt.type === 'mortgage' && !debt.exclude_from_net_worth}
+								<p class="text-xs text-amber-600 max-w-xs text-right">
+									Counted twice if this property's equity is also tracked.
+								</p>
+							{/if}
 						</div>
 					</li>
 				{/each}
@@ -149,7 +177,8 @@
 				<label class="text-sm font-medium" for="debt-type">Type</label>
 				<select
 					id="debt-type"
-					bind:value={type}
+					value={type}
+					onchange={(event) => handleTypeChange(/** @type {any} */ (event.currentTarget.value))}
 					class="border border-input rounded-md px-2 py-1.5 text-sm"
 				>
 					{#each DEBT_TYPES as debtType (debtType)}
@@ -182,10 +211,20 @@
 				/>
 			</div>
 
-			<label class="flex items-center gap-1.5 text-sm text-muted-foreground pb-2">
-				<input type="checkbox" bind:checked={excludeFromNetWorth} />
-				Exclude from net worth
-			</label>
+			<div class="flex flex-col gap-1 pb-2">
+				<label
+					class="flex items-center gap-1.5 text-sm text-muted-foreground"
+					title={type === 'mortgage' ? MORTGAGE_EXCLUDE_HINT : undefined}
+				>
+					<input type="checkbox" bind:checked={excludeFromNetWorth} />
+					{type === 'mortgage'
+						? 'Exclude — property equity tracked separately'
+						: 'Exclude from net worth'}
+				</label>
+				{#if type === 'mortgage'}
+					<p class="text-xs text-muted-foreground max-w-xs">{MORTGAGE_EXCLUDE_HINT}</p>
+				{/if}
+			</div>
 
 			<Button type="submit" size="sm">Add debt</Button>
 		</form>
