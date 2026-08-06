@@ -9,10 +9,12 @@
 	 * position typed in here — an assumption, held for this page session only and never written to
 	 * `monthly_entries`, so the tab is usable today without pretending to be history.
 	 *
-	 * Sliders (#17), the chart and its confidence band (#12), milestone and retirement markers (#18),
-	 * the age filter (#19), the contributions-vs-growth panel (#20) and the stress test overlay (#21)
-	 * are separate issues; `forecastBand()` and each point's `contributions`/`growth` split are
-	 * already computed here for them to read.
+	 * Growth rate and spread are draggable sliders (#17) paired with a precise number field, both
+	 * bound to the same state so either control moves the other and the scenarios below recompute on
+	 * every input event — there is no "apply" step. The chart and its confidence band (#12), milestone
+	 * and retirement markers (#18), the age filter (#19), the contributions-vs-growth panel (#20) and
+	 * the stress test overlay (#21) are separate issues; `forecastBand()` and each point's
+	 * `contributions`/`growth` split are already computed here for them to read.
 	 */
 	import {
 		DEFAULT_SCENARIO_SPREAD,
@@ -24,6 +26,18 @@
 	} from '$lib/forecast.js';
 	import { createInvestment } from '$lib/model.js';
 	import Card from './ui/card.svelte';
+
+	// Slider ranges are an invented UI convenience, not spec — README.md gives no bounds for either
+	// assumption. `forecast.js` itself still validates and accepts the full -100..100 / 0..100 range
+	// via the paired number field; these are just where the drag handle lives, chosen to cover
+	// realistic UK planning scenarios (equities ~5-8%, cash ~1-3%) at a step fine enough to feel
+	// live without a stray decimal on every drag.
+	const GROWTH_SLIDER_MIN = -10;
+	const GROWTH_SLIDER_MAX = 15;
+	const GROWTH_SLIDER_STEP = 0.1;
+	const SPREAD_SLIDER_MIN = 0;
+	const SPREAD_SLIDER_MAX = 10;
+	const SPREAD_SLIDER_STEP = 0.5;
 
 	/**
 	 * @type {{
@@ -136,29 +150,53 @@
 
 	<div class="flex flex-wrap items-end gap-4 mb-4">
 		<div class="flex flex-col gap-1">
-			<label class="text-sm font-medium" for="forecast-growth">Annual growth (%)</label>
-			<input
-				id="forecast-growth"
-				type="number"
-				min="-100"
-				max="100"
-				step="0.1"
-				bind:value={rate}
-				class="border border-input rounded-md px-2 py-1.5 text-sm w-28"
-			/>
+			<span id="forecast-growth-label" class="text-sm font-medium">Annual growth (%)</span>
+			<div class="flex items-center gap-2">
+				<input
+					type="range"
+					aria-labelledby="forecast-growth-label"
+					min={GROWTH_SLIDER_MIN}
+					max={GROWTH_SLIDER_MAX}
+					step={GROWTH_SLIDER_STEP}
+					bind:value={rate}
+					class="w-32 accent-black"
+				/>
+				<input
+					id="forecast-growth"
+					type="number"
+					aria-labelledby="forecast-growth-label"
+					min="-100"
+					max="100"
+					step="0.1"
+					bind:value={rate}
+					class="border border-input rounded-md px-2 py-1.5 text-sm w-24"
+				/>
+			</div>
 		</div>
 
 		<div class="flex flex-col gap-1">
-			<label class="text-sm font-medium" for="forecast-spread">Scenario spread (± pp)</label>
-			<input
-				id="forecast-spread"
-				type="number"
-				min="0"
-				max="100"
-				step="0.5"
-				bind:value={spreadInput}
-				class="border border-input rounded-md px-2 py-1.5 text-sm w-28"
-			/>
+			<span id="forecast-spread-label" class="text-sm font-medium">Scenario spread (± pp)</span>
+			<div class="flex items-center gap-2">
+				<input
+					type="range"
+					aria-labelledby="forecast-spread-label"
+					min={SPREAD_SLIDER_MIN}
+					max={SPREAD_SLIDER_MAX}
+					step={SPREAD_SLIDER_STEP}
+					bind:value={spreadInput}
+					class="w-32 accent-black"
+				/>
+				<input
+					id="forecast-spread"
+					type="number"
+					aria-labelledby="forecast-spread-label"
+					min="0"
+					max="100"
+					step="0.5"
+					bind:value={spreadInput}
+					class="border border-input rounded-md px-2 py-1.5 text-sm w-24"
+				/>
+			</div>
 		</div>
 
 		<div class="flex flex-col gap-1">
