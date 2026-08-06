@@ -33,3 +33,7 @@ export * from './stress-test.js';
 
 // GitHub Gist persistence — the only place any feature tab should read/write stored data from.
 export * from './gist.js';
+
+// Global reactive app state — the shared store every feature tab should read/write against
+// instead of local component state. Hydrates from and syncs (debounced) to gist.js.
+export * from './store.js';
