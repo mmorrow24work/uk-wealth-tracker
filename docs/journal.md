@@ -21,6 +21,14 @@ Entry format. The Claude Code session that implements the issue writes everythin
 - ...
 ```
 
+## Build Velocity
+
+Recomputed by the pipeline's "Patch journal metrics" step after every issue that completes with real (non-placeholder) numbers below — this is a rolling mean over all such entries, not just the latest one.
+
+<!-- VELOCITY_STATS_START -->
+_Not enough completed entries with recorded metrics yet to compute stats._
+<!-- VELOCITY_STATS_END -->
+
 ## Scaffold bare SvelteKit project + directory structure — 2026-08-05
 <!-- METRICS:scaffold-bare-sveltekit-project-directory-structure -->
 - **Execution Duration:** 191 seconds

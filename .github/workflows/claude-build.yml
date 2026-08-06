@@ -59,6 +59,33 @@ jobs:
             echo "No 'Closes #N' reference found in PR body -- nothing to close."
           fi
 
+      - name: Reset stalled issues
+        # Issues can get stuck in status:in-progress forever if the "Run
+        # Claude Code" step for them ever failed or errored out (max-turns,
+        # crash, etc.) -- there was previously no step that put them back
+        # in the queue, so the picker (which only looks at status:ready)
+        # silently skipped them for good, and later milestones' ready work
+        # ran first instead. Safe to do at the top of every run: the
+        # concurrency group guarantees only one run of this workflow is
+        # ever active, so any issue still in-progress here was left that
+        # way by a run that has already fully finished.
+        # Matches on "#<n>" anywhere in an open PR's title or body, not
+        # just an exact "Closes #<n>", since Claude doesn't always use that
+        # literal phrasing (see PR #52 / issue #13) -- an issue is only
+        # reset if no open PR references it at all.
+        run: |
+          stalled=$(gh issue list --state open --label status:in-progress --json number --jq '.[].number')
+          open_prs=$(gh pr list --state open --json title,body --jq '[.[] | (.title + " " + .body)]')
+          for n in $stalled; do
+            has_pr=$(echo "$open_prs" | jq --arg n "$n" 'map(select(test("#" + $n + "(\\D|$)"))) | length > 0')
+            if [ "$has_pr" = "false" ]; then
+              echo "Issue #$n has no open PR -- resetting to status:ready"
+              gh issue edit "$n" --remove-label "status:in-progress" --add-label "status:ready"
+            else
+              echo "Issue #$n has an open PR referencing it -- leaving as-is"
+            fi
+          done
+
       - name: Pick next ready issue
         id: pick
         run: |
@@ -140,9 +167,14 @@ jobs:
         if: steps.pick.outputs.found == 'true'
         id: findpr
         run: |
-          pr_json=$(gh pr list --state open --json number,headRefName,body --limit 100 \
+          # Match "#<n>" anywhere in title or body, not just an exact
+          # "Closes #<n>" in the body -- Claude doesn't always use that
+          # literal phrasing (see PR #52 / issue #13, which only had
+          # "(#13)" in the title), and a stricter match left a green,
+          # mergeable PR sitting untouched indefinitely.
+          pr_json=$(gh pr list --state open --json number,headRefName,title,body --limit 100 \
             | jq -c --arg n "${{ steps.pick.outputs.number }}" \
-              '[.[] | select(.body | test("[Cc]loses #" + $n + "(\\D|$)"))] | .[0] // empty')
+              '[.[] | select((.title + " " + .body) | test("#" + $n + "(\\D|$)"))] | .[0] // empty')
 
           if [ -z "$pr_json" ]; then
             echo "No PR found referencing Closes #${{ steps.pick.outputs.number }} -- Claude did not finish (e.g. hit max-turns)."
@@ -195,11 +227,70 @@ jobs:
             -e "s/__COST__/${cost}/" \
             docs/journal.md
 
+          # Recompute the Build Velocity table from every entry that now has
+          # real (non-placeholder, non-n/a) numbers, including the one just
+          # patched above.
+          python3 - <<'PYEOF'
+          import re
+
+          with open("docs/journal.md") as f:
+              text = f.read()
+
+          durations = [int(x) for x in re.findall(r"\*\*Execution Duration:\*\* (\d+) seconds", text)]
+          input_toks = [int(x) for x in re.findall(r"\*\*Input Tokens:\*\* (\d+)\b", text)]
+          output_toks = [int(x) for x in re.findall(r"\*\*Output Tokens:\*\* (\d+)\b", text)]
+          costs = [float(x) for x in re.findall(r"\*\*Estimated Cost:\*\* \$([0-9.]+)", text)]
+
+          def mean(xs):
+              return sum(xs) / len(xs) if xs else None
+
+          def fmt_duration(seconds):
+              if seconds is None:
+                  return "n/a"
+              m, s = divmod(round(seconds), 60)
+              return f"{m}m {s:02d}s"
+
+          def fmt_num(x):
+              return "n/a" if x is None else f"{x:,.0f}"
+
+          def fmt_cost(x):
+              return "n/a" if x is None else f"${x:,.4f}"
+
+          table = (
+              "| Metric | Value |\n"
+              "|---|---|\n"
+              f"| Issues with recorded metrics | {len(durations)} |\n"
+              f"| Mean time per issue | {fmt_duration(mean(durations))} |\n"
+              f"| Mean input tokens per issue | {fmt_num(mean(input_toks))} |\n"
+              f"| Mean output tokens per issue | {fmt_num(mean(output_toks))} |\n"
+              f"| Mean estimated cost per issue | {fmt_cost(mean(costs))} |\n"
+          )
+
+          text = re.sub(
+              r"(?s)(<!-- VELOCITY_STATS_START -->\n).*?(\n<!-- VELOCITY_STATS_END -->)",
+              lambda m: m.group(1) + table + m.group(2),
+              text,
+          )
+
+          with open("docs/journal.md", "w") as f:
+              f.write(text)
+          PYEOF
+
           git config user.name "claude-build-pipeline"
           git config user.email "actions@users.noreply.github.com"
           git add docs/journal.md
           git commit -m "Fill in journal metrics for issue #${{ steps.pick.outputs.number }}" || echo "Nothing to commit"
-          git push origin "HEAD:${{ steps.findpr.outputs.branch }}"
+
+          # Plain `git push` doesn't honor the GH_TOKEN env var (that only
+          # authenticates the `gh` CLI) -- it uses whatever credential
+          # helper is active in git's config, and the claude-code-action
+          # step above leaves its own short-lived credential in place,
+          # which doesn't have push rights on this branch. Point the push
+          # explicitly at GH_PAT instead of relying on ambient git config.
+          # This silently failed on every issue except #1 (patched by hand)
+          # until now -- continue-on-error on this step masked it as green.
+          git push "https://x-access-token:${GH_PAT}@github.com/${{ github.repository }}.git" \
+            "HEAD:${{ steps.findpr.outputs.branch }}"
 
       - name: Mark issue in-review
         if: steps.pick.outputs.found == 'true' && steps.findpr.outputs.found == 'true'

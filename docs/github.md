@@ -160,3 +160,37 @@ issue_number=$(echo "$PR_BODY" | grep -ioP '[Cc]loses #\K\d+' | head -1)
 gh issue close "$issue_number" --reason completed
 ```
 gated on the workflow's `pull_request` trigger with `github.event.pull_request.merged == true`.
+
+---
+
+## `continue-on-error: true` hides real failures, it doesn't fix them
+
+The "Patch journal metrics" step had `continue-on-error: true` (so a metrics-patching hiccup wouldn't block the merge). That's reasonable in principle, but it meant a genuine bug — `git push` failing with `fatal: Authentication failed` on **every single run** — went undetected for the first ~15 issues. The step always showed green in the run summary; only the annotations panel (`X Process completed with exit code 128`) at the bottom of `gh run view` surfaced it, and nothing was watching that.
+
+**Root cause: plain `git` commands don't honor `GH_TOKEN`.** The job sets `env: GH_TOKEN: ${{ secrets.GH_PAT }}` at job level, which authenticates the `gh` CLI correctly — but `git push`/`git fetch` use whatever credential helper is active in git's config, not that env var. `actions/checkout@v4` persists `GITHUB_TOKEN`-based credentials at checkout time, but the `claude-code-action` step (which pushes its own commits as part of implementing the issue) leaves its own short-lived credential in git's config afterward. By the time a later step in the same job tries a plain `git push`, it's using that leftover credential — not `GITHUB_TOKEN`, not `GH_PAT` — and it doesn't have write access to the branch.
+
+**Fix:** don't rely on ambient git config for a `git push`/`git fetch` that needs a specific identity. Point it explicitly at the token:
+```sh
+git push "https://x-access-token:${GH_PAT}@github.com/${{ github.repository }}.git" "HEAD:$BRANCH"
+```
+**Lesson:** if a step both (a) does raw `git` operations (not `gh`) and (b) has `continue-on-error: true`, its exit code is invisible in the normal run summary — check `gh run view <id>` (or the run's Annotations panel) directly rather than trusting the green checkmark, especially right after introducing a new auth mechanism like a PAT.
+
+---
+
+## A silently-skipped issue never re-enters the queue — add a reset/retry step
+
+The picker only ever considers `status:ready` issues (`gh issue list --label status:ready`). If the "Run Claude Code" step for an issue fails — hits `--max-turns`, errors, crashes — the issue is left labeled `status:in-progress` and the job simply ends (later steps are skipped by their `if: steps.pick.outputs.found == 'true'` guards, which don't fire on a failed prior step). Nothing ever puts it back to `status:ready`. It's not retried; it's not even visible as broken — it just silently vanishes from the queue forever.
+
+Symptom actually observed: six issues sat in `status:in-progress` indefinitely while later milestones' `status:ready` issues kept getting picked and merged around them — looked at first like intentional cross-milestone parallelism, but was actually abandoned work with no path back into rotation.
+
+**Fix:** a step at the top of every run that scans open `status:in-progress` issues and resets any with no corresponding open PR back to `status:ready`. Safe to do unconditionally because the workflow's `concurrency` group guarantees only one run is ever active — any issue still `in-progress` at the start of a run was left that way by a run that has already fully finished, not one still executing.
+
+**Related:** the "does this issue have a PR" check (used both by this reset step and by "Find PR created for this issue") should match loosely — `"#<n>"` anywhere in the PR's title or body — not require the exact phrase `Closes #<n>`. Claude doesn't always use that literal wording (observed on issue #13's PR, which only had `(#13)` in the title); a strict match left a fully green, mergeable PR sitting untouched indefinitely, and a stricter reset step would have gone on to spawn a *second*, duplicate PR for the same issue on top of it.
+
+---
+
+## Estimating build ETA from actual run data, not guesses
+
+`gh api repos/<owner>/<repo>/actions/runs/<id>/jobs` returns `started_at`/`completed_at` per job — the difference across every successfully-merged issue's `pull_request`-triggered run gives real wall-clock time per issue (checkout → Claude Code → CI-trigger → auto-merge-enabled), independent of whether the journal's own metrics got recorded correctly. This is how "mean time per issue" was first computed here, before the journal's Build Velocity table existed to do it automatically. Useful pattern any time job-level metrics are broken or missing but you still need a real number: go to the Actions API directly rather than trusting derived artifacts.
+
+**The 15-minute cron is a backstop, not a throughput lever.** Once `pull_request: closed` triggers instant chaining, the schedule trigger only ever fires usefully when the chain has actually stalled (a failed run, a `status:ready` queue that's genuinely empty, etc.) — during a healthy run of back-to-back merges, the cron tick mostly finds a run already in flight and does nothing (or, with a healthy queue, would race harmlessly into the `concurrency` group and just queue). Changing the interval (e.g. 15 → 30 min) doesn't meaningfully speed up or slow down the build; it only changes how quickly an actually-stalled pipeline gets picked back up.
