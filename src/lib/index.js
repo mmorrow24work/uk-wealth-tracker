@@ -17,5 +17,9 @@ export * from './auto-invest.js';
 // Three-scenario net worth projections — see the Forecast tab's ForecastProjections component.
 export * from './forecast.js';
 
+// Retirement age marker + net worth milestone pills — see ForecastProjections' "Milestones &
+// retirement" section.
+export * from './milestones.js';
+
 // GitHub Gist persistence — the only place any feature tab should read/write stored data from.
 export * from './gist.js';

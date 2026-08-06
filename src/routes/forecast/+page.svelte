@@ -11,8 +11,8 @@
 <h1>Forecast</h1>
 <p>
 	Where your net worth lands under three growth assumptions, live as you drag the growth and spread
-	sliders below. The retirement marker, milestone pills, the age filter, the compounding-effect
-	panel and the stress-test overlay land in later builds.
+	sliders below, plus when you cross the £100k/£250k/£500k/£1M milestones and reach retirement age.
+	The age filter, the compounding-effect panel and the stress-test overlay land in later builds.
 </p>
 
 <div class="mt-6 flex max-w-3xl flex-col gap-6">
