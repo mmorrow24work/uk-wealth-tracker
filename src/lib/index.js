@@ -21,5 +21,9 @@ export * from './forecast.js';
 // retirement" section.
 export * from './milestones.js';
 
+// Age-range zoom/filter for the forecast summary table — see ForecastProjections' "Zoom from/to
+// age" controls.
+export * from './age-filter.js';
+
 // GitHub Gist persistence — the only place any feature tab should read/write stored data from.
 export * from './gist.js';

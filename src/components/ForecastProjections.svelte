@@ -15,10 +15,15 @@
 	 * separate, not-yet-built issue, so the milestone pills and retirement marker (#18) below are
 	 * rendered as a list rather than plotted on a chart; `$lib/milestones.js` is written against
 	 * `Forecast`, not against any chart library, so #12 can read it once the chart lands instead of
-	 * this issue inventing chart-pill placement math twice. The age filter (#19), the
-	 * contributions-vs-growth panel (#20) and the stress test overlay (#21) are separate issues;
-	 * `forecastBand()` and each point's `contributions`/`growth` split are already computed here for
-	 * them to read.
+	 * this issue inventing chart-pill placement math twice. The contributions-vs-growth panel (#20)
+	 * and the stress test overlay (#21) are separate issues; `forecastBand()` and each point's
+	 * `contributions`/`growth` split are already computed here for them to read.
+	 *
+	 * The age range filter (#19) follows the same placeholder pattern #18 set: `$lib/age-filter.js`
+	 * is written against `Forecast`/`ForecastSummaryRow`, not against a chart's x-axis, so it "zooms"
+	 * the one piece of forecast UI that exists today — swapping the scenario summary table's fixed
+	 * years-from-now horizons for one row per year of age within the chosen range — and is ready for
+	 * #12 to reuse (`filterPointsByAge`) once there is a chart series to zoom instead.
 	 */
 	import {
 		DEFAULT_SCENARIO_SPREAD,
@@ -28,7 +33,8 @@
 		forecastScenarios,
 		summariseForecast
 	} from '$lib/forecast.js';
-	import { milestoneCrossings, retirementMarker } from '$lib/milestones.js';
+	import { forecastAgeBounds, summariseForecastByAge } from '$lib/age-filter.js';
+	import { ageAtPoint, milestoneCrossings, retirementMarker } from '$lib/milestones.js';
 	import { createInvestment, createProfile } from '$lib/model.js';
 	import Card from './ui/card.svelte';
 
@@ -78,15 +84,22 @@
 	let startingValue = $state(10_000);
 	let monthlyContribution = $state(500);
 
-	// Fallback for the milestone/retirement markers: `Profile` has no form to feed this from until
-	// the store (#5) lands, so birth year/month and retirement age are typed in here too, same as
-	// the starting position above.
+	// Fallback for the milestone/retirement markers and the age filter below: `Profile` has no form
+	// to feed this from until the store (#5) lands, so birth year/month and retirement age are typed
+	// in here too, same as the starting position above. One birth year/month pair now feeds all
+	// three age-aware features (milestones, retirement marker, age filter) rather than each
+	// collecting its own.
 	// svelte-ignore state_referenced_locally
 	let dobYear = $state(dobYearProp);
 	// svelte-ignore state_referenced_locally
 	let dobMonth = $state(dobMonthProp);
 	// svelte-ignore state_referenced_locally
 	let retirementAgeInput = $state(retirementAgeProp);
+
+	// Age range filter (#19) — unset by default, so the table shows its usual years-from-now
+	// horizons until the user actually asks to zoom to an age range.
+	let fromAgeInput = $state(null);
+	let toAgeInput = $state(null);
 
 	/**
 	 * `bind:value` on a numeric input hands back a number, or `null` once the field is cleared — but
@@ -135,6 +148,21 @@
 	const parsedRetirementAge = $derived(parse(retirementAgeInput, 67));
 	const retirementAgeIsValid = $derived(parsedRetirementAge >= 16 && parsedRetirementAge <= 120);
 
+	// Age range filter (#19). Either bound left blank is unbounded on that side (`$lib/age-filter.js`
+	// → `AgeRange`), so "zoom from age 55 onward" doesn't need a made-up upper bound typed in.
+	const parsedFromAge = $derived(parseOptionalInt(fromAgeInput));
+	const parsedToAge = $derived(parseOptionalInt(toAgeInput));
+	const ageRangeIsValid = $derived(
+		(parsedFromAge === null || (parsedFromAge >= 0 && parsedFromAge <= 120)) &&
+			(parsedToAge === null || (parsedToAge >= 0 && parsedToAge <= 120)) &&
+			(parsedFromAge === null || parsedToAge === null || parsedFromAge <= parsedToAge)
+	);
+	// A filter needs a birth year (same requirement `retirementMarker` has) and at least one bound
+	// actually set — leaving both blank isn't "zoomed to an empty range", it's "not zoomed".
+	const ageFilterActive = $derived(
+		parsedDobYear !== null && (parsedFromAge !== null || parsedToAge !== null)
+	);
+
 	// Only what `retirementMarker` reads — a real Profile has many more fields this panel doesn't
 	// collect and shouldn't invent values for.
 	const markerProfile = $derived(
@@ -168,9 +196,32 @@
 			: forecastScenarios({ ...input, investments: assumedHoldings }, options);
 	});
 
-	const rows = $derived(forecast ? summariseForecast(forecast) : []);
+	// The age range a "from"/"to" control can actually offer — hints for the empty-field
+	// placeholders, and what `summariseForecastByAge` itself clamps a requested range to.
+	const ageBounds = $derived(
+		forecast && parsedDobYear !== null
+			? forecastAgeBounds(forecast, parsedDobYear, parsedDobMonth)
+			: null
+	);
+
+	const rows = $derived(
+		forecast
+			? ageFilterActive && ageRangeIsValid
+				? summariseForecastByAge(forecast, parsedDobYear, parsedDobMonth, {
+						fromAge: parsedFromAge,
+						toAge: parsedToAge
+					})
+				: summariseForecast(forecast)
+			: []
+	);
 	const anchor = $derived(forecast?.series.realistic[0] ?? null);
 	const finalRow = $derived(rows.at(-1) ?? null);
+
+	/** Reset the age filter back to "not zoomed" without touching the birth year/month fields. */
+	function clearAgeFilter() {
+		fromAgeInput = null;
+		toAgeInput = null;
+	}
 
 	const milestones = $derived(forecast ? milestoneCrossings(forecast) : []);
 	const retirement = $derived(forecast ? retirementMarker(forecast, markerProfile) : null);
@@ -283,6 +334,92 @@
 		</p>
 	{/if}
 
+	<div class="mb-4 rounded-md border border-border bg-muted/40 p-3">
+		<p class="text-sm text-muted-foreground mb-3">
+			Zoom the table below to a specific age range. Birth year/month feed the milestones and
+			retirement marker further down too — there's no profile form to read them from until #5 lands,
+			so they're typed in here for this forecast only; nothing is saved.
+		</p>
+		<div class="flex flex-wrap items-end gap-4">
+			<div class="flex flex-col gap-1">
+				<label class="text-sm font-medium" for="forecast-dob-year">Birth year</label>
+				<input
+					id="forecast-dob-year"
+					type="number"
+					min="1900"
+					max="2200"
+					step="1"
+					placeholder="e.g. 1990"
+					bind:value={dobYear}
+					class="border border-input rounded-md px-2 py-1.5 text-sm w-28"
+				/>
+			</div>
+			<div class="flex flex-col gap-1">
+				<label class="text-sm font-medium" for="forecast-dob-month">Birth month</label>
+				<input
+					id="forecast-dob-month"
+					type="number"
+					min="1"
+					max="12"
+					step="1"
+					placeholder="1–12, optional"
+					bind:value={dobMonth}
+					class="border border-input rounded-md px-2 py-1.5 text-sm w-28"
+				/>
+			</div>
+			<div class="flex flex-col gap-1">
+				<label class="text-sm font-medium" for="forecast-from-age">Zoom from age</label>
+				<input
+					id="forecast-from-age"
+					type="number"
+					min="0"
+					max="120"
+					step="1"
+					placeholder={ageBounds ? String(ageBounds.minAge) : 'e.g. 55'}
+					disabled={parsedDobYear === null}
+					bind:value={fromAgeInput}
+					class="border border-input rounded-md px-2 py-1.5 text-sm w-24 disabled:opacity-50"
+				/>
+			</div>
+			<div class="flex flex-col gap-1">
+				<label class="text-sm font-medium" for="forecast-to-age">Zoom to age</label>
+				<input
+					id="forecast-to-age"
+					type="number"
+					min="0"
+					max="120"
+					step="1"
+					placeholder={ageBounds ? String(ageBounds.maxAge) : 'e.g. 65'}
+					disabled={parsedDobYear === null}
+					bind:value={toAgeInput}
+					class="border border-input rounded-md px-2 py-1.5 text-sm w-24 disabled:opacity-50"
+				/>
+			</div>
+			{#if ageFilterActive}
+				<button
+					type="button"
+					onclick={clearAgeFilter}
+					class="text-sm text-muted-foreground underline pb-2"
+				>
+					Clear zoom
+				</button>
+			{/if}
+		</div>
+		{#if parsedDobYear === null}
+			<p class="text-xs text-muted-foreground mt-2">Add a birth year above to zoom by age.</p>
+		{:else if !ageRangeIsValid}
+			<p class="text-sm text-red-600 mt-2">
+				Zoom ages must be 0–120, and "from" can't be after "to".
+			</p>
+		{:else if ageFilterActive && rows.length === 0}
+			<p class="text-sm text-muted-foreground mt-2">
+				No forecast months fall in that age range{ageBounds
+					? ` (this forecast covers age ${ageBounds.minAge}–${ageBounds.maxAge})`
+					: ''}.
+			</p>
+		{/if}
+	</div>
+
 	{#if hasHistory && anchor}
 		<p class="text-sm text-muted-foreground mb-4">
 			Projected from your {formatMonth(anchor)} snapshot: {formatMoney(anchor.investments)} invested
@@ -365,6 +502,11 @@
 								<span class="text-xs text-muted-foreground ml-1">
 									{formatMonth(row)}
 								</span>
+								{#if parsedDobYear !== null}
+									<span class="text-xs text-muted-foreground ml-1">
+										(age {ageAtPoint(parsedDobYear, parsedDobMonth, row)})
+									</span>
+								{/if}
 							</td>
 							{#each FORECAST_SCENARIOS as scenario (scenario)}
 								<td class="py-2 px-2 text-right tabular-nums">
@@ -388,38 +530,12 @@
 			<h3 class="text-sm font-semibold mb-1">Milestones &amp; retirement</h3>
 			<p class="text-xs text-muted-foreground mb-3">
 				Realistic-scenario crossing dates, with the range across pessimistic and optimistic in
-				brackets. Birth year/month and retirement age aren't collected anywhere yet (there's no
-				profile form until #5 lands), so they're typed in here for this forecast only — nothing is
-				saved.
+				brackets. Uses the birth year/month entered above; retirement age isn't collected anywhere
+				else yet (there's no profile form until #5 lands), so it's typed in here for this forecast
+				only — nothing is saved.
 			</p>
 
 			<div class="flex flex-wrap items-end gap-4 mb-3">
-				<div class="flex flex-col gap-1">
-					<label class="text-xs font-medium" for="forecast-dob-year">Birth year</label>
-					<input
-						id="forecast-dob-year"
-						type="number"
-						min="1900"
-						max="2200"
-						step="1"
-						placeholder="e.g. 1990"
-						bind:value={dobYear}
-						class="border border-input rounded-md px-2 py-1.5 text-sm w-28"
-					/>
-				</div>
-				<div class="flex flex-col gap-1">
-					<label class="text-xs font-medium" for="forecast-dob-month">Birth month</label>
-					<input
-						id="forecast-dob-month"
-						type="number"
-						min="1"
-						max="12"
-						step="1"
-						placeholder="1–12, optional"
-						bind:value={dobMonth}
-						class="border border-input rounded-md px-2 py-1.5 text-sm w-28"
-					/>
-				</div>
 				<div class="flex flex-col gap-1">
 					<label class="text-xs font-medium" for="forecast-retirement-age">Retirement age</label>
 					<input

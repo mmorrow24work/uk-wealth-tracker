@@ -492,6 +492,32 @@ export const DEFAULT_SUMMARY_YEARS = Object.freeze([1, 5, 10, 20, 30]);
  */
 
 /**
+ * One {@link ForecastSummaryRow} for a single realistic-scenario point, reading the matching
+ * pessimistic/optimistic values off the same offset. The one place that shape is assembled, so
+ * {@link summariseForecast} and `age-filter.js`'s {@link import('./age-filter.js').summariseForecastByAge}
+ * — which picks a different set of offsets but wants identically-shaped rows — agree by construction
+ * rather than by two hand-written object literals staying in sync.
+ *
+ * @param {Forecast} forecast
+ * @param {ForecastPoint} point A point from `forecast.series.realistic`.
+ * @returns {ForecastSummaryRow}
+ */
+export function forecastSummaryRow(forecast, point) {
+	return {
+		years: point.offset / 12,
+		offset: point.offset,
+		month: point.month,
+		year: point.year,
+		net_worth: {
+			pessimistic: forecast.series.pessimistic[point.offset]?.net_worth ?? point.net_worth,
+			realistic: point.net_worth,
+			optimistic: forecast.series.optimistic[point.offset]?.net_worth ?? point.net_worth
+		},
+		contributions: point.contributions
+	};
+}
+
+/**
  * Summarise a forecast at a handful of horizons. Horizons past the end of the forecast are dropped,
  * and the forecast's own final month is always included (once), so the table always ends where the
  * projection does rather than at whichever round number happened to fit.
@@ -509,20 +535,9 @@ export function summariseForecast(forecast, years = DEFAULT_SUMMARY_YEARS) {
 	/** @type {ForecastSummaryRow[]} */
 	const rows = [];
 	for (const offset of [...new Set(wanted)].sort((a, b) => a - b)) {
-		const realistic = forecast.series.realistic[offset];
-		if (!realistic) continue;
-		rows.push({
-			years: offset / 12,
-			offset,
-			month: realistic.month,
-			year: realistic.year,
-			net_worth: {
-				pessimistic: forecast.series.pessimistic[offset]?.net_worth ?? realistic.net_worth,
-				realistic: realistic.net_worth,
-				optimistic: forecast.series.optimistic[offset]?.net_worth ?? realistic.net_worth
-			},
-			contributions: realistic.contributions
-		});
+		const point = forecast.series.realistic[offset];
+		if (!point) continue;
+		rows.push(forecastSummaryRow(forecast, point));
 	}
 	return rows;
 }
