@@ -5,5 +5,8 @@
 export * from './enums.js';
 export * from './model.js';
 
+// Debt-to-investment ratio — see the Net Worth dashboard's DebtTracker component.
+export * from './debt.js';
+
 // GitHub Gist persistence — the only place any feature tab should read/write stored data from.
 export * from './gist.js';
