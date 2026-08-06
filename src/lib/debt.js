@@ -85,3 +85,22 @@ export function debtToInvestmentStatus(ratioPct) {
 	if (ratioPct > DEBT_TO_INVESTMENT_THRESHOLDS.concern) return 'concern';
 	return 'moderate';
 }
+
+/**
+ * README.md → "Mortgage debt toggle": whether a debt of this type should default to *excluded*
+ * from net worth as soon as it is added. `mortgage` is the one debt type that routinely overlaps
+ * with something else already on the net worth total — a property's equity (value minus
+ * mortgage_balance, README.md → "Property Tracker") — so a mortgage debt left included alongside
+ * a tracked property double-counts the same liability. Every other debt type has no such
+ * counterpart, so it defaults to included until the user says otherwise.
+ *
+ * This only sets the *default* the add-debt form pre-fills; the checkbox it drives
+ * (`exclude_from_net_worth`, {@link sumDebtBalances}) stays user-editable either way, since not
+ * everyone who logs a mortgage debt also tracks that property separately.
+ *
+ * @param {import('./enums.js').DebtType} type
+ * @returns {boolean}
+ */
+export function defaultsToExcludedFromNetWorth(type) {
+	return type === 'mortgage';
+}

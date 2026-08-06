@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'vitest';
 
+import { DEBT_TYPES } from './enums.js';
 import { createDebt, createInvestment } from './model.js';
 import {
 	DEBT_TO_INVESTMENT_STATUS_LABELS,
 	DEBT_TO_INVESTMENT_THRESHOLDS,
 	debtToInvestmentRatio,
 	debtToInvestmentStatus,
+	defaultsToExcludedFromNetWorth,
 	sumDebtBalances,
 	sumInvestmentValues
 } from './debt.js';
@@ -138,6 +140,26 @@ describe('debtToInvestmentStatus', () => {
 		]);
 		for (const label of Object.values(DEBT_TO_INVESTMENT_STATUS_LABELS)) {
 			expect(label).toBeTruthy();
+		}
+	});
+});
+
+describe('defaultsToExcludedFromNetWorth', () => {
+	it('defaults mortgage debts to excluded', () => {
+		expect(defaultsToExcludedFromNetWorth('mortgage')).toBe(true);
+	});
+
+	it('defaults every other debt type to included', () => {
+		for (const type of DEBT_TYPES) {
+			if (type === 'mortgage') continue;
+			expect(defaultsToExcludedFromNetWorth(type)).toBe(false);
+		}
+	});
+
+	it('returns a boolean for every debt type', () => {
+		expect(DEBT_TYPES.length).toBeGreaterThan(1);
+		for (const type of DEBT_TYPES) {
+			expect(typeof defaultsToExcludedFromNetWorth(type)).toBe('boolean');
 		}
 	});
 });
