@@ -10,9 +10,9 @@
 
 <h1>Forecast</h1>
 <p>
-	Where your net worth lands under three growth assumptions. Live growth sliders, the retirement
-	marker, milestone pills, the age filter, the compounding-effect panel and the stress-test overlay
-	land in later builds.
+	Where your net worth lands under three growth assumptions, live as you drag the growth and spread
+	sliders below. The retirement marker, milestone pills, the age filter, the compounding-effect
+	panel and the stress-test overlay land in later builds.
 </p>
 
 <div class="mt-6 flex max-w-3xl flex-col gap-6">
