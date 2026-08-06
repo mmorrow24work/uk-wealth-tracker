@@ -108,6 +108,9 @@
  * @property {number} year Four-digit year of the snapshot.
  * @property {Investment[]} investments Holdings at this month end.
  * @property {Debt[]} debts Debts at this month end.
+ * @property {boolean} auto_filled True when the snapshot was generated to bridge a month the user
+ *   skipped (`lib/auto-invest.js`) rather than recorded by hand. Not in README.md's outline; added
+ *   so projected months stay visibly distinct from real ones and can be recomputed at will.
  */
 
 /**

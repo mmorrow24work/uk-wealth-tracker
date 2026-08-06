@@ -11,5 +11,8 @@ export * from './debt.js';
 // Activity log with revert support for deleted entries — see the ActivityLog component.
 export * from './activity-log.js';
 
+// Auto-invest fill — compound-growth snapshots for months the user skipped.
+export * from './auto-invest.js';
+
 // GitHub Gist persistence — the only place any feature tab should read/write stored data from.
 export * from './gist.js';
