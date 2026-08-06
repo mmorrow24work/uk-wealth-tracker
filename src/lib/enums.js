@@ -55,7 +55,8 @@ export const TAX_REGION_LABELS = Object.freeze({
 /* -------------------------------------------------------------------------- */
 
 /**
- * Investment holding type (README.md → "Investment types").
+ * Investment holding type (README.md → "Investment types"; issue #9's exact list, in the same
+ * order: Stocks ISA, SIPP, Shares, Crypto, Cash, Emergency Fund, Dividends, Property).
  * @typedef {'stocks_isa' | 'sipp' | 'shares' | 'crypto' | 'cash' | 'emergency_fund' | 'dividends' | 'property'} InvestmentType
  */
 
@@ -91,10 +92,11 @@ export const INVESTMENT_TYPE_LABELS = Object.freeze({
 export const CASH_INVESTMENT_TYPES = Object.freeze(['cash', 'emergency_fund']);
 
 /**
- * Account wrapper a holding sits in. The first six are the UK ISA wrappers tracked by the ISA
- * allowance tracker; `sipp` and `workplace_pension` are tax-relieved pension wrappers; `gia` is
- * an unwrapped general investment account (taxable); `none` covers anything unwrapped and
- * untaxed by these rules (e.g. crypto held directly, physical assets).
+ * Account wrapper a holding sits in — the "account wrapper types" of issue #9. The first six are
+ * the UK ISA wrappers tracked by the ISA allowance tracker; `sipp` and `workplace_pension` are
+ * tax-relieved pension wrappers; `gia` is an unwrapped general investment account (taxable);
+ * `none` covers anything unwrapped and untaxed by these rules (e.g. crypto held directly,
+ * physical assets).
  * @typedef {'isa_stocks_shares' | 'isa_cash' | 'lisa' | 'jisa' | 'ifisa' | 'htb_isa' | 'sipp' | 'workplace_pension' | 'gia' | 'none'} Wrapper
  */
 

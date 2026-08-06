@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
+import { INVESTMENT_TYPES, WRAPPERS } from './enums.js';
 import {
 	SCHEMA_VERSION,
 	compareMonthlyEntries,
@@ -182,6 +183,55 @@ describe('document shape matches README.md', () => {
 
 	it('stamps the current schema version', () => {
 		expect(createAppData().schema_version).toBe(SCHEMA_VERSION);
+	});
+});
+
+/* -------------------------------------------------------------------------- */
+/* Issue #9 — investment holding fields + account wrapper types                */
+/*                                                                              */
+/* Pins the issue's own acceptance criteria directly, independent of the       */
+/* README-derived assertions above: "Per-holding fields: name, type, current   */
+/* value, purchase price, year purchased, monthly contribution, account        */
+/* wrapper. Investment types: Stocks ISA, SIPP, Shares, Crypto, Cash,          */
+/* Emergency Fund, Dividends, Property."                                       */
+/* -------------------------------------------------------------------------- */
+
+describe('issue #9 — investment holding fields + account wrapper types', () => {
+	it('records every per-holding field the issue asks for', () => {
+		const investment = createInvestment();
+		// name, type, current value, purchase price, year purchased, monthly contribution,
+		// account wrapper — README.md's field names are name/type/value/bought_for/
+		// year_purchased/monthly_contribution/wrapper respectively.
+		for (const field of [
+			'name',
+			'type',
+			'value',
+			'bought_for',
+			'year_purchased',
+			'monthly_contribution',
+			'wrapper'
+		]) {
+			expect(investment).toHaveProperty(field);
+		}
+	});
+
+	it('offers exactly the eight investment types the issue lists, in the same order', () => {
+		expect([...INVESTMENT_TYPES]).toEqual([
+			'stocks_isa',
+			'sipp',
+			'shares',
+			'crypto',
+			'cash',
+			'emergency_fund',
+			'dividends',
+			'property'
+		]);
+	});
+
+	it('offers an account wrapper enum a holding can be assigned to', () => {
+		expect(WRAPPERS.length).toBeGreaterThan(0);
+		expect(createInvestment().wrapper).toBeTypeOf('string');
+		expect(WRAPPERS).toContain(createInvestment().wrapper);
 	});
 });
 
