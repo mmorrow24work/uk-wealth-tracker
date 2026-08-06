@@ -218,6 +218,11 @@ export function createProfile(overrides = {}) {
 }
 
 /**
+ * A per-holding record covering issue #9's field list — name, type, current value (`value`),
+ * purchase price (`bought_for`), year purchased, monthly contribution, account wrapper — plus
+ * the extra fields README.md's outline adds on top (contribution frequency, fund fee, notes,
+ * exclude-from-net-worth, ownership %).
+ *
  * @param {Partial<Investment>} [overrides]
  * @returns {Investment}
  */
