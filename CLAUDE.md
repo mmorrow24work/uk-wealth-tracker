@@ -8,7 +8,7 @@ This repository currently contains **only planning documents** (`README.md`, `DE
 
 ## What this project is
 
-A personal UK net worth, tax and retirement planning app, functionally modelled on [WealthR](https://wealthr.co.uk/). Self-hosted on GitHub Pages, with user data stored in a private GitHub Gist (no backend). Personal use only — not financial advice, all projections illustrative.
+A personal UK net worth, tax and retirement planning app, functionally modelled on [WealthR](https://wealthr.co.uk/). Self-hosted on GitHub Pages, no backend. Data is stored in the browser by default, with optional sync to a private GitHub Gist for cross-device access (see DESIGN.md's "Data Persistence" section and GitHub Milestone 7). Personal use only — not financial advice, all projections illustrative.
 
 Repo: `mmorrow24work/uk-wealth-tracker` (fork of `mmorrow2012/uk-wealth-tracker`, used as the working repo — `origin` remote points here, `upstream` points to the original).
 
@@ -17,7 +17,7 @@ Repo: `mmorrow24work/uk-wealth-tracker` (fork of `mmorrow2012/uk-wealth-tracker`
 - **Framework:** SvelteKit — chosen deliberately over React for token/verbosity reasons (see "Build philosophy" below), not for technical superiority.
 - **UI:** shadcn-svelte + Tailwind CSS
 - **Charts:** Recharts or Chart.js — undecided, resolve in the scaffold conversation if not already settled
-- **Persistence:** GitHub Gist (JSON) via a GitHub token; `VITE_GITHUB_TOKEN` and `VITE_GIST_ID` in `.env.local`
+- **Persistence:** Browser-only by default (IndexedDB/localStorage, no setup); optional GitHub Gist (JSON) sync via a GitHub token — `VITE_GITHUB_TOKEN` and `VITE_GIST_ID` in `.env.local`. Gist mode only, not browser-only mode, needs GitHub sign-in (Milestone 7).
 - **Hosting:** GitHub Pages, deployed via GitHub Actions
 
 ## Build philosophy — read before making framework/architecture choices
@@ -45,7 +45,7 @@ src/
 └── components/         # NetWorthChart.svelte, ForecastChart.svelte, etc.
 ```
 
-Key architectural point: **all persisted data lives in one JSON blob in a private GitHub Gist**, read/written through `lib/gist.js`. There is no backend and no database — every feature tab reads/writes against the same in-memory store (`lib/store.js`) which syncs to/from the Gist. When adding a new feature area, extend the shared data model rather than introducing separate storage.
+Key architectural point: **all persisted data lives in one JSON blob**, either in the browser (default, no setup) or additionally synced to a private GitHub Gist (opt-in, cross-device), read/written through `lib/gist.js`. There is no backend and no database — every feature tab reads/writes against the same in-memory store (`lib/store.js`). "Private" Gist means GitHub's *secret* (unlisted) visibility, not access control — anyone with the raw URL or Gist id can read it; see DESIGN.md for why this matters for the sign-in / delete-my-data work. When adding a new feature area, extend the shared data model rather than introducing separate storage.
 
 ## Data model
 

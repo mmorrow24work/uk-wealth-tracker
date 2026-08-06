@@ -1,6 +1,6 @@
 # uk-wealth-tracker
 
-A personal UK net worth, tax and retirement planning app — self-hosted on GitHub Pages with data stored in a private GitHub Gist. Functionally modelled on [WealthR](https://wealthr.co.uk/).
+A personal UK net worth, tax and retirement planning app — self-hosted on GitHub Pages, with data stored either fully in your browser or synced to a private GitHub Gist (see [Persistence modes](#persistence-modes)). Functionally modelled on [WealthR](https://wealthr.co.uk/).
 
 > **Personal use only.** Not financial advice. All projections are illustrative.
 
@@ -11,7 +11,7 @@ A personal UK net worth, tax and retirement planning app — self-hosted on GitH
 - **Framework:** SvelteKit
 - **UI:** shadcn-svelte + Tailwind CSS
 - **Charts:** LayerChart (Svelte-native, D3-based — Recharts is React-only and doesn't apply to this SvelteKit app)
-- **Persistence:** GitHub Gist (JSON)
+- **Persistence:** Browser-only by default (IndexedDB/localStorage), with optional GitHub Gist (JSON) sync — see [Persistence modes](#persistence-modes)
 - **Hosting:** GitHub Pages
 - **CI/CD:** GitHub Actions
 
@@ -259,11 +259,22 @@ npm install
 npm run dev
 ```
 
-### Environment Setup
+### Persistence modes
 
-Data persistence uses GitHub Gist, configured via environment variables in a `.env.local` file. Two variables are available:
+The app supports two persistence modes:
 
-- **`VITE_GITHUB_TOKEN`** — A GitHub personal access token with the `gist` scope. Without this, the app uses `localStorage` only (data persists in the current browser only).
+1. **Browser-only (default).** Data is stored in the browser itself (IndexedDB, with `localStorage` as fallback). No account, no token, no setup — works immediately, entirely offline. Data stays on the one device unless you export it. Modelled on [SquirrelPlan](https://squirrelplan.app/)'s approach; see GitHub Milestone 7 ("Data Portability & Access") for status.
+2. **GitHub Gist sync (opt-in).** For access from more than one device, the same data is also written to a single JSON file in a private ("secret") GitHub Gist.
+
+   **What "a JSON blob in a private Gist" means:** the entire dataset — profile, monthly entries, pensions, properties, assets, dividends, milestones, budget — is one JSON object stored as a single file's content in a Gist. There's no database: every save overwrites that file wholesale, every load re-fetches and re-parses it. "Private" means GitHub's **secret** gist visibility — unlisted and unindexed, but **not access-controlled**: anyone with the raw file URL or the Gist's id can read it without authenticating. Treat the id itself as a secret, not as a real access boundary. (See Milestone 7 for a proper GitHub sign-in flow and a "delete all my data" action for this mode.)
+
+Both modes speak the same JSON shape, so **Export data as JSON** / **Import data from JSON** works as a manual bridge between them, and as a backup mechanism either way.
+
+### Environment Setup (Gist sync mode only)
+
+Gist sync is configured via environment variables in a `.env.local` file. Two variables are available:
+
+- **`VITE_GITHUB_TOKEN`** — A GitHub personal access token with the `gist` scope. Without this, the app uses browser-only storage.
 - **`VITE_GIST_ID`** — (Optional) An existing private Gist's id where data will be stored. If a token is set but this is left blank, the app creates a new private Gist on first save and caches its id in `localStorage`.
 
 **To enable Gist persistence:**

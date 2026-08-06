@@ -47,12 +47,17 @@ Reactive charts updating on slider input, state shared across pension/forecast/t
 
 ## Data Persistence
 
-### Decision: GitHub Gist (JSON)
+### Decision: two persistence modes — browser-only by default, GitHub Gist sync as opt-in
 
-- No backend required
-- Auth via existing GitHub token
-- Same pattern as SquirrelPlan fork work
-- CSV export/import as secondary data path (WealthR data portability)
+**Mode 1 — Browser-only (default).** All data lives in the browser (IndexedDB, with `localStorage` as fallback) via `lib/store.js`. No GitHub token, no network call, no setup required — the app works fully offline from first load. Data never leaves the device unless the user explicitly exports it. Modelled on [SquirrelPlan](https://squirrelplan.app/)'s approach.
+
+**Mode 2 — GitHub Gist sync (opt-in).** For cross-device access, the same data model is also written to a single JSON file in a private ("secret") GitHub Gist via `lib/gist.js`, authenticated with the user's own GitHub token.
+
+**What "a JSON blob in a private Gist" actually means:** the app's entire dataset (profile, monthly entries, pensions, properties, assets, dividends, milestones, budget) is serialized into one JSON object and stored as the content of a single file inside a GitHub Gist. There are no tables, no rows, no query engine — every save overwrites that one file's content wholesale, every load fetches and re-parses it. "Private" here means GitHub's **secret** gist visibility: not listed publicly, not indexed by search — but **not access-controlled**. Anyone who obtains the raw file URL or the Gist's id can read its full contents without authenticating as the owner; it's obscurity, not encryption or an access-control list. This is directly relevant to the sign-in/delete-my-data work below — being signed in identifies *which* Gist is yours to read and write, it does not make that Gist's content itself any more protected than its id staying secret.
+
+- No backend required, either mode
+- GitHub sign-in (auth) only applies to Gist mode — a user on browser-only storage never needs a GitHub token at all. See GitHub Milestone 7 ("Data Portability & Access") for the sign-in flow and the per-user "delete all my data" action this makes possible for Gist mode.
+- JSON export/import works in both modes, as the common interchange format between them; CSV and XLSX export are secondary, read-only data paths (WealthR data portability)
 
 ---
 
@@ -79,6 +84,7 @@ Full Phase 1 in one conversation burns too many tokens and risks context window 
 4. **Conversation 4** — UK tax calculator
 5. **Conversation 5** — pensions + dividends
 6. **Conversation 6** — property + assets
+7. **Conversation 7** (added after Phase 1 was underway) — data portability & access: browser-only storage mode, XLSX export, GitHub sign-in for Gist mode, delete-all-my-data for Gist mode. Tracked as GitHub Milestone 7, "Data Portability & Access."
 
 Each conversation opens with repo context + `PROJECT_PLAN.md`, same pattern as `mmorrow24work/cve-demo`.
 
