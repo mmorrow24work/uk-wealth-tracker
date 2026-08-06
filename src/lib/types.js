@@ -37,6 +37,8 @@
 /** @typedef {import('./enums.js').AssetCategory} AssetCategory */
 /** @typedef {import('./enums.js').DividendStrategy} DividendStrategy */
 /** @typedef {import('./enums.js').MilestoneType} MilestoneType */
+/** @typedef {import('./enums.js').ActivityLogEntityType} ActivityLogEntityType */
+/** @typedef {import('./enums.js').ActivityLogAction} ActivityLogAction */
 
 /**
  * The user and their headline planning assumptions. One profile per document — partner/household
@@ -246,6 +248,28 @@
  */
 
 /**
+ * One row in the activity log — a record that an investment or debt was added, removed or
+ * updated, kept so the change history can be reviewed and a deletion undone. README.md →
+ * "Net Worth Tracking" lists "Activity log with revert support for deleted entries" but the Data
+ * Model outline does not mention it; added here per this repo's rule that a new feature area
+ * extends the shared data model rather than keeping its own storage (see PR notes for issue #14).
+ *
+ * @typedef {object} ActivityLogEntry
+ * @property {string} id
+ * @property {string} timestamp ISO 8601 date-time the action was recorded.
+ * @property {ActivityLogAction} action What happened.
+ * @property {ActivityLogEntityType} entity_type Kind of record the action was performed on.
+ * @property {string} entity_id `Investment.id` / `Debt.id` the action applied to.
+ * @property {string} entity_name Name of the record at the time of the action, kept alongside the
+ *   id so the log still reads sensibly after the record itself is gone.
+ * @property {Record<string, unknown> | null} snapshot The full record as it stood immediately
+ *   before an `added`/`removed` action — what a `removed` entry needs to restore itself via
+ *   revert. Null where no snapshot was recorded.
+ * @property {boolean} reverted Whether a `removed` entry's deletion has since been undone. Always
+ *   false for `added`/`updated` entries — only a deletion is revertible (issue #14's own scope).
+ */
+
+/**
  * The whole persisted document — everything the app stores, in one JSON blob.
  *
  * @typedef {object} AppData
@@ -259,6 +283,7 @@
  * @property {Dividend[]} dividends
  * @property {Milestone[]} milestones
  * @property {Budget} budget
+ * @property {ActivityLogEntry[]} activity_log Newest first.
  */
 
 /**

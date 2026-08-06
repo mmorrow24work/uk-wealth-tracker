@@ -8,5 +8,8 @@ export * from './model.js';
 // Debt-to-investment ratio — see the Net Worth dashboard's DebtTracker component.
 export * from './debt.js';
 
+// Activity log with revert support for deleted entries — see the ActivityLog component.
+export * from './activity-log.js';
+
 // GitHub Gist persistence — the only place any feature tab should read/write stored data from.
 export * from './gist.js';
