@@ -22,9 +22,10 @@
  * 3. **Scenarios differ only by a parallel shift of the growth rate.** Pessimistic is not a crash
  *    and optimistic is not a boom: both are "what if the long-run average were this instead". A
  *    crash with a magnitude, a date and a recovery is the stress test overlay (README.md →
- *    "Forecast", issue #21), and path-dependent return sequences are the Monte Carlo simulator
- *    (README.md → Phase 2). Keeping this module to a parallel shift is what makes its output a
- *    smooth confidence band rather than three unrelated stories.
+ *    "Forecast", issue #21) — which builds its path out of {@link ForecastOptions.adjustMonth}
+ *    rather than out of a second projector — and path-dependent return sequences are the Monte
+ *    Carlo simulator (README.md → Phase 2). Keeping this module's own scenarios to a parallel shift
+ *    is what makes its output a smooth confidence band rather than three unrelated stories.
  * 4. **Net worth is what counts towards net worth.** Holdings and debts flagged
  *    `exclude_from_net_worth` are dropped before projecting, matching `debt.js`'s totals, so the
  *    forecast never quietly re-includes a mortgage the user excluded because the property tab
@@ -144,6 +145,34 @@ export function scenarioRateDelta(scenario, spreadPct = DEFAULT_SCENARIO_SPREAD)
 /* -------------------------------------------------------------------------- */
 
 /**
+ * What one month does differently from the rest of the projection — the seam the stress test overlay
+ * (`stress-test.js`, issue #21) builds a crash and its recovery out of, so a stressed projection is
+ * this module's own arithmetic with two months' worth of assumptions swapped rather than a second
+ * projector that could drift from it.
+ *
+ * Exactly one of the two applies per month, `factor` winning if both are given:
+ *
+ * - `growthRate` replaces the *base* annual assumption for that month, for every holding. The
+ *   scenario shift and each holding's fund fee still apply on top, so a recovery window keeps the
+ *   three-scenario band rather than collapsing it to one line. Per-holding overrides
+ *   ({@link ForecastOptions.holdingGrowthRates}) are deliberately ignored while an override is in
+ *   force: a crash and its rebound are market-wide events, and a per-holding long-run assumption
+ *   ("cash earns 1%") does not describe either.
+ * - `factor` replaces the month's growth outright: the holding's opening value is multiplied by it
+ *   and the month's contribution added, with no rate, no compounding and no fund fee involved. That
+ *   is what makes "a 35% crash" mean the pot falls exactly 35% rather than 35% plus or minus a
+ *   month of ordinary growth.
+ *
+ * Either way the month's contribution is still paid on schedule, and the change in value is still
+ * booked to `growth` — a crash is negative growth, so {@link ForecastPoint}'s split keeps
+ * reconciling (`compounding.js` → `reconcileCompounding`).
+ *
+ * @typedef {object} ForecastMonthAdjustment
+ * @property {number} [growthRate] Annual growth (%) replacing the base assumption for this month.
+ * @property {number} [factor] Multiplicative move for this month — `0.65` for a 35% fall.
+ */
+
+/**
  * Options shared by every projection entry point here.
  *
  * @typedef {object} ForecastOptions
@@ -158,6 +187,9 @@ export function scenarioRateDelta(scenario, spreadPct = DEFAULT_SCENARIO_SPREAD)
  *   before compounding. Default `true`.
  * @property {number} [growthRateDelta] Percentage points added to every rate above — how a scenario
  *   is expressed. Normally set by {@link forecastScenarios}, not by a caller.
+ * @property {((offset: number) => ForecastMonthAdjustment | null) | null} [adjustMonth] Called once
+ *   per projected month with its offset (1 = the first month after the anchor). Return `null` — as
+ *   an absent hook does — to project that month normally. See {@link ForecastMonthAdjustment}.
  */
 
 /**
@@ -260,6 +292,8 @@ export function currentCalendarMonth() {
  * so inventing a repayment schedule would make the net worth line depend on a number nobody
  * entered. A user who expects their mortgage to fall can see that on the property tab instead.
  *
+ * `options.adjustMonth` overrides individual months — see {@link ForecastMonthAdjustment}.
+ *
  * @param {object} input
  * @param {readonly import('./types.js').Investment[]} [input.investments] Holdings at the anchor.
  * @param {readonly import('./types.js').Debt[]} [input.debts] Debts at the anchor.
@@ -299,18 +333,35 @@ export function projectScenario(input = {}, options = {}) {
 	];
 
 	for (let offset = 1; offset <= horizon; offset += 1) {
+		// A month the caller wants projected differently — a crash, or a month inside a recovery
+		// window. Resolved once per month rather than per holding: the adjustment is market-wide by
+		// construction, so asking for it once is both cheaper and the honest expression of that.
+		const adjustment = options.adjustMonth?.(offset) ?? null;
+		const factor = typeof adjustment?.factor === 'number' ? adjustment.factor : null;
+		const monthOptions =
+			typeof adjustment?.growthRate === 'number'
+				? { ...options, growthRate: adjustment.growthRate, holdingGrowthRates: {} }
+				: options;
+
 		holdings = holdings.map((investment) => {
-			// The fee is already folded into the resolved rate, so the primitive must not apply it
-			// a second time — hence `applyFundFees: false` here regardless of the caller's choice.
-			const value = projectHoldingValue(investment, offset, {
-				growthRate: resolveHoldingGrowthRate(investment, options),
-				applyFundFees: false
-			});
 			const paid = contributionForOffset(investment, offset);
+			const value =
+				factor === null
+					? // The fee is already folded into the resolved rate, so the primitive must not apply
+						// it a second time — hence `applyFundFees: false` here regardless of the caller's
+						// choice.
+						projectHoldingValue(investment, offset, {
+							growthRate: resolveHoldingGrowthRate(investment, monthOptions),
+							applyFundFees: false
+						})
+					: // A stated move, applied to the opening value with the month's contribution added on
+						// top — same shape and same rounding as `projectHoldingValue`, minus the rate.
+						roundMoney(investment.value * factor + paid);
 
 			contributions += paid;
 			// Growth is what the month's value change was *not* explained by the contribution, so
-			// the two always reconcile to the value change exactly, rounding included.
+			// the two always reconcile to the value change exactly, rounding included. A crash is
+			// therefore booked as negative growth, not as a hole in the split.
 			growth += value - investment.value - paid;
 
 			return { ...investment, value };
@@ -388,12 +439,37 @@ export function forecastScenarios(input = {}, options = {}) {
 }
 
 /**
- * Project forward from a recorded history — the normal entry point once monthly snapshots exist.
+ * The position a forecast built from a recorded history starts from: the latest entry's holdings,
+ * debts and month.
  *
- * The anchor is the latest entry, auto-filled or recorded: a forecast should start from the most
+ * The anchor is the latest entry, auto-filled or recorded — a forecast should start from the most
  * recent position known, and `auto-invest.js`'s filled months are that position for anyone who
- * skipped a month. Returns `null` when there is no history to anchor on, so a caller can tell
- * "nothing to forecast yet" from "a forecast that happens to be flat".
+ * skipped a month. `null` when there is no history to anchor on, so a caller can tell "nothing to
+ * forecast yet" from "a forecast that happens to be flat".
+ *
+ * Exported separately from {@link forecastFromEntries} because a caller that wants to project the
+ * *same* position twice under different assumptions — the stress test overlay projecting a crash
+ * alongside the unstressed baseline (issue #21) — must not re-derive the anchor itself and risk
+ * anchoring the two projections differently.
+ *
+ * @param {readonly import('./types.js').MonthlyEntry[]} entries Any order.
+ * @returns {{ investments: import('./types.js').Investment[], debts: import('./types.js').Debt[], start: { month: number, year: number } } | null}
+ */
+export function positionFromEntries(entries) {
+	if (entries.length === 0) return null;
+
+	const latest = [...entries].sort(compareMonthlyEntries).at(-1);
+	if (!latest) return null;
+
+	return {
+		investments: latest.investments,
+		debts: latest.debts,
+		start: { month: latest.month, year: latest.year }
+	};
+}
+
+/**
+ * Project forward from a recorded history — the normal entry point once monthly snapshots exist.
  *
  * @param {readonly import('./types.js').MonthlyEntry[]} entries Any order.
  * @param {{ months?: number, spread?: number }} [input]
@@ -401,20 +477,10 @@ export function forecastScenarios(input = {}, options = {}) {
  * @returns {Forecast | null}
  */
 export function forecastFromEntries(entries, input = {}, options = {}) {
-	if (entries.length === 0) return null;
+	const position = positionFromEntries(entries);
+	if (!position) return null;
 
-	const latest = [...entries].sort(compareMonthlyEntries).at(-1);
-	if (!latest) return null;
-
-	return forecastScenarios(
-		{
-			...input,
-			investments: latest.investments,
-			debts: latest.debts,
-			start: { month: latest.month, year: latest.year }
-		},
-		options
-	);
+	return forecastScenarios({ ...input, ...position }, options);
 }
 
 /* -------------------------------------------------------------------------- */
