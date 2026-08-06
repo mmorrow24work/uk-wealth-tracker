@@ -15,8 +15,12 @@
 	 * separate, not-yet-built issue, so the milestone pills and retirement marker (#18) below are
 	 * rendered as a list rather than plotted on a chart; `$lib/milestones.js` is written against
 	 * `Forecast`, not against any chart library, so #12 can read it once the chart lands instead of
-	 * this issue inventing chart-pill placement math twice. The stress test overlay (#21) is a
-	 * separate issue; `forecastBand()` is already computed here for it to read.
+	 * this issue inventing chart-pill placement math twice.
+	 *
+	 * The stress test overlay (#21) is the `StressTestPanel` section at the bottom. It is handed the
+	 * baseline `Forecast` and the position that produced it, so the crash it projects starts from the
+	 * same holdings, the same anchor and the same horizon as the lines above rather than from a second
+	 * reading of the history.
 	 *
 	 * The compounding-effect panel (#20) is the `CompoundingPanel` section at the bottom: it reads the
 	 * `contributions`/`growth` split every `ForecastPoint` already carries, and takes this component's
@@ -34,14 +38,15 @@
 		DEFAULT_SCENARIO_SPREAD,
 		FORECAST_SCENARIOS,
 		FORECAST_SCENARIO_LABELS,
-		forecastFromEntries,
 		forecastScenarios,
+		positionFromEntries,
 		summariseForecast
 	} from '$lib/forecast.js';
 	import { forecastAgeBounds, summariseForecastByAge } from '$lib/age-filter.js';
 	import { ageAtPoint, milestoneCrossings, retirementMarker } from '$lib/milestones.js';
 	import { createInvestment, createProfile } from '$lib/model.js';
 	import CompoundingPanel from './CompoundingPanel.svelte';
+	import StressTestPanel from './StressTestPanel.svelte';
 	import Card from './ui/card.svelte';
 
 	// Slider ranges are an invented UI convenience, not spec — README.md gives no bounds for either
@@ -192,14 +197,22 @@
 		})
 	]);
 
-	const forecast = $derived.by(() => {
-		if (!assumptionsAreValid) return null;
-		const input = { months: Math.round(parsedYears * 12), spread: parsedSpread };
-		const options = { growthRate: parsedRate, applyFundFees: deductFees };
+	const forecastOptions = $derived({ growthRate: parsedRate, applyFundFees: deductFees });
 
-		return hasHistory
-			? forecastFromEntries(monthlyEntries, input, options)
-			: forecastScenarios({ ...input, investments: assumedHoldings }, options);
+	// The position every projection on this tab starts from — the latest snapshot, or the assumed
+	// starting position while there is no history. Derived once rather than per projection so the
+	// baseline and the stress overlay below are the same holdings from the same anchor, which is what
+	// makes the two comparable at all.
+	const position = $derived(
+		hasHistory ? positionFromEntries(monthlyEntries) : { investments: assumedHoldings, debts: [] }
+	);
+
+	const forecast = $derived.by(() => {
+		if (!assumptionsAreValid || !position) return null;
+		return forecastScenarios(
+			{ ...position, months: Math.round(parsedYears * 12), spread: parsedSpread },
+			forecastOptions
+		);
 	});
 
 	// The age range a "from"/"to" control can actually offer — hints for the empty-field
@@ -618,6 +631,17 @@
 			dobYear={parsedDobYear}
 			dobMonth={parsedDobMonth}
 		/>
+
+		{#if position}
+			<StressTestPanel
+				{forecast}
+				{position}
+				options={forecastOptions}
+				offsets={rowOffsets}
+				dobYear={parsedDobYear}
+				dobMonth={parsedDobMonth}
+			/>
+		{/if}
 	{/if}
 
 	{#if hasHistory && anchor && anchor.investments === 0}

@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
-import { DEFAULT_GROWTH_RATE, fillMissingMonths, netAnnualGrowthRate } from './auto-invest.js';
+import {
+	DEFAULT_GROWTH_RATE,
+	fillMissingMonths,
+	monthlyGrowthRate,
+	netAnnualGrowthRate
+} from './auto-invest.js';
 import { createDebt, createInvestment, createMonthlyEntry } from './model.js';
 import {
 	DEFAULT_FORECAST_MONTHS,
@@ -14,6 +19,7 @@ import {
 	forecastFromEntries,
 	forecastPointAtYear,
 	forecastScenarios,
+	positionFromEntries,
 	projectScenario,
 	resolveHoldingGrowthRate,
 	scenarioGrowthRates,
@@ -468,8 +474,160 @@ describe('forecastScenarios', () => {
 });
 
 /* -------------------------------------------------------------------------- */
-/* forecastFromEntries                                                         */
+/* Per-month adjustments (the stress test overlay's seam, #21)                 */
 /* -------------------------------------------------------------------------- */
+
+describe('projectScenario with adjustMonth', () => {
+	const position = {
+		investments: [holding({ value: 10_000, monthly_contribution: 0, fund_fee: 0 })],
+		start: JAN_2026,
+		months: 12
+	};
+
+	it('projects normally when the hook returns null for every month', () => {
+		const adjusted = projectScenario(position, { growthRate: 5, adjustMonth: () => null });
+		expect(adjusted).toEqual(projectScenario(position, { growthRate: 5 }));
+	});
+
+	it('applies a stated move to the month it names, and nothing else', () => {
+		const points = projectScenario(position, {
+			growthRate: 5,
+			adjustMonth: (offset) => (offset === 6 ? { factor: 0.6 } : null)
+		});
+		const plain = projectScenario(position, { growthRate: 5 });
+
+		expect(points[5]).toEqual(plain[5]);
+		expect(points[6].investments).toBeCloseTo(points[5].investments * 0.6, 2);
+		// The month after is ordinary growth again, on the smaller pot.
+		expect(points[7].investments / points[6].investments).toBeCloseTo(
+			plain[7].investments / plain[6].investments,
+			6
+		);
+	});
+
+	it('books a stated move as growth, so the split still reconciles', () => {
+		const points = projectScenario(
+			{ ...position, investments: [holding({ monthly_contribution: 200, fund_fee: 0 })] },
+			{ growthRate: 5, adjustMonth: (offset) => (offset === 3 ? { factor: 0.5 } : null) }
+		);
+
+		for (const point of points) {
+			expect(point.investments).toBeCloseTo(10_000 + point.contributions + point.growth, PENNY);
+		}
+		expect(points[3].growth).toBeLessThan(points[2].growth);
+	});
+
+	it('still pays the month contribution at the new price', () => {
+		const points = projectScenario(
+			{ ...position, investments: [holding({ monthly_contribution: 500, fund_fee: 0 })] },
+			{ growthRate: 5, adjustMonth: (offset) => (offset === 4 ? { factor: 0.5 } : null) }
+		);
+		expect(points[4].investments).toBeCloseTo(points[3].investments * 0.5 + 500, 2);
+		expect(points[4].contributions).toBe(2_000);
+	});
+
+	it('replaces the base rate for a month, keeping the scenario shift and the fund fee', () => {
+		const points = projectScenario(
+			{ ...position, investments: [holding({ fund_fee: 0.5, monthly_contribution: 0 })] },
+			{
+				growthRate: 5,
+				growthRateDelta: -2,
+				adjustMonth: (offset) => (offset === 2 ? { growthRate: 20 } : null)
+			}
+		);
+
+		// 20% for the named month, shifted by the scenario's -2pp and netted of the 0.5% fee.
+		expect(points[2].investments / points[1].investments).toBeCloseTo(
+			1 + monthlyGrowthRate(netAnnualGrowthRate(18, 0.5)),
+			6
+		);
+		expect(points[3].investments / points[2].investments).toBeCloseTo(
+			1 + monthlyGrowthRate(netAnnualGrowthRate(3, 0.5)),
+			6
+		);
+	});
+
+	it('ignores per-holding growth overrides while a month rate is in force', () => {
+		const points = projectScenario(
+			{ ...position, investments: [holding({ id: 'inv_cash', fund_fee: 0 })] },
+			{
+				growthRate: 5,
+				holdingGrowthRates: { inv_cash: 1 },
+				adjustMonth: (offset) => (offset === 2 ? { growthRate: 20 } : null)
+			}
+		);
+
+		expect(points[1].investments / points[0].investments).toBeCloseTo(1 + monthlyGrowthRate(1), 6);
+		expect(points[2].investments / points[1].investments).toBeCloseTo(1 + monthlyGrowthRate(20), 6);
+	});
+
+	it('prefers a stated move over a rate when a month somehow carries both', () => {
+		const points = projectScenario(position, {
+			growthRate: 5,
+			adjustMonth: (offset) => (offset === 1 ? { factor: 0.5, growthRate: 50 } : null)
+		});
+		expect(points[1].investments).toBeCloseTo(5_000, 2);
+	});
+
+	it('is never asked about the anchor, which every scenario shares', () => {
+		/** @type {number[]} */
+		const asked = [];
+		projectScenario(
+			{ ...position, months: 3 },
+			{
+				adjustMonth: (offset) => {
+					asked.push(offset);
+					return null;
+				}
+			}
+		);
+		expect(asked).toEqual([1, 2, 3]);
+	});
+
+	it('reaches every scenario through forecastScenarios', () => {
+		const forecast = forecastScenarios(position, {
+			growthRate: 5,
+			adjustMonth: (offset) => (offset === 6 ? { factor: 0.5 } : null)
+		});
+
+		for (const scenario of FORECAST_SCENARIOS) {
+			const series = forecast.series[scenario];
+			expect(series[6].investments).toBeCloseTo(series[5].investments * 0.5, 2);
+		}
+	});
+});
+
+/* -------------------------------------------------------------------------- */
+/* positionFromEntries / forecastFromEntries                                   */
+/* -------------------------------------------------------------------------- */
+
+describe('positionFromEntries', () => {
+	const older = createMonthlyEntry({ ...JAN_2026, investments: [holding({ value: 10_000 })] });
+	const newer = createMonthlyEntry({
+		month: 4,
+		year: 2026,
+		investments: [holding({ value: 12_000 })],
+		debts: [createDebt({ balance: 2_000 })]
+	});
+
+	it('reads the latest snapshot, whatever order the entries arrive in', () => {
+		const position = positionFromEntries([newer, older]);
+		expect(position?.start).toEqual({ month: 4, year: 2026 });
+		expect(position?.investments[0].value).toBe(12_000);
+		expect(position?.debts[0].balance).toBe(2_000);
+	});
+
+	it('returns null when there is no history to anchor on', () => {
+		expect(positionFromEntries([])).toBeNull();
+	});
+
+	it('is the position forecastFromEntries itself projects', () => {
+		const position = positionFromEntries([older, newer]);
+		expect(forecastFromEntries([older, newer], { months: 12 }, { growthRate: 5 })).toEqual(
+			forecastScenarios({ ...position, months: 12 }, { growthRate: 5 })
+		);
+	});
+});
 
 describe('forecastFromEntries', () => {
 	const older = createMonthlyEntry({
