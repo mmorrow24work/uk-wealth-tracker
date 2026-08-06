@@ -8,5 +8,13 @@ export * from './model.js';
 // Debt-to-investment ratio — see the Net Worth dashboard's DebtTracker component.
 export * from './debt.js';
 
+// Net worth calculations — month-on-month change display and net worth aggregates.
+// Does not re-export sumInvestmentValues/sumDebtBalances (already available from debt.js).
+export {
+	calculateNetWorth,
+	calculateMonthOnMonthChange,
+	formatMonthOnMonthChange
+} from './net-worth.js';
+
 // GitHub Gist persistence — the only place any feature tab should read/write stored data from.
 export * from './gist.js';

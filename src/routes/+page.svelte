@@ -1,5 +1,6 @@
 <script>
 	import DebtTracker from '../components/DebtTracker.svelte';
+	import MonthOnMonthChange from '../components/MonthOnMonthChange.svelte';
 
 	// Investment holding entry (README.md → "Monthly snapshot entry") is issue #8's monthly
 	// snapshot form and isn't wired up yet, so the ratio has nothing to divide by until then.
@@ -9,15 +10,19 @@
 	let investments = $state([]);
 	/** @type {import('$lib/types.js').Debt[]} */
 	let debts = $state([]);
+	/** @type {import('$lib/types.js').MonthlyEntry[]} */
+	let monthlyEntries = $state([]);
 </script>
 
 <h1>Net Worth</h1>
 <p>Personal UK net worth, tax and retirement planning app. Not financial advice.</p>
 <p>
 	The full net worth dashboard — monthly snapshot entry, tracked/forecast chart and the activity log
-	— lands in a later build. Debt tracking and the debt-to-investment ratio are below.
+	— lands in a later build. Month-on-month change, debt tracking and the debt-to-investment ratio
+	are below.
 </p>
 
-<div class="mt-6 max-w-2xl">
+<div class="mt-6 max-w-2xl space-y-6">
+	<MonthOnMonthChange entries={monthlyEntries} />
 	<DebtTracker {investments} bind:debts />
 </div>
