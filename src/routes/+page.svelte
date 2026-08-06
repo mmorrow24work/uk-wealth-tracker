@@ -5,6 +5,7 @@
 	import AutoInvestFill from '../components/AutoInvestFill.svelte';
 	import DebtTracker from '../components/DebtTracker.svelte';
 	import InvestmentHoldings from '../components/InvestmentHoldings.svelte';
+	import NetWorthChart from '../components/NetWorthChart.svelte';
 	import {
 		appData,
 		compareMonthlyEntries,
@@ -60,18 +61,22 @@
 
 <h1>Net Worth</h1>
 <p>Personal UK net worth, tax and retirement planning app. Not financial advice.</p>
-<p>
-	The full net worth dashboard — tracked/forecast chart — lands in a later build. Monthly snapshot
-	entry for investment holdings, debt tracking, the debt-to-investment ratio, the auto-invest fill
-	for skipped months and the activity log are below.
-</p>
 <p class="text-sm text-muted-foreground">
 	{getPersistenceMode() === 'gist' ? 'Synced to your GitHub Gist' : 'Saved to this browser only'}.
 	{#if $syncState.syncing}Saving…{/if}
 	{#if $syncState.error}<span class="text-red-600">Sync error: {$syncState.error}</span>{/if}
 </p>
 
-<div class="mt-6 flex max-w-2xl flex-col gap-6">
+<div class="mt-6 flex max-w-4xl flex-col gap-6">
+	{#if monthlyEntries.length > 0}
+		<div class="rounded-lg border bg-white p-4">
+			<h2 class="mb-4 text-lg font-semibold">Net Worth History</h2>
+			<NetWorthChart {monthlyEntries} />
+		</div>
+	{:else}
+		<p class="text-muted-foreground">Record monthly snapshots to see your net worth chart.</p>
+	{/if}
+
 	<InvestmentHoldings bind:monthlyEntries bind:activityLog />
 	<DebtTracker {investments} bind:debts bind:activityLog />
 	<AutoInvestFill bind:monthlyEntries growthRate={5} />
