@@ -17,6 +17,8 @@
  */
 
 import {
+	ACTIVITY_LOG_ACTIONS,
+	ACTIVITY_LOG_ENTITY_TYPES,
 	ASSET_CATEGORIES,
 	BILL_FREQUENCIES,
 	CONTRIBUTION_FREQUENCIES,
@@ -35,6 +37,7 @@ import {
 	WRAPPERS
 } from './enums.js';
 
+/** @typedef {import('./types.js').ActivityLogEntry} ActivityLogEntry */
 /** @typedef {import('./types.js').AppData} AppData */
 /** @typedef {import('./types.js').Asset} Asset */
 /** @typedef {import('./types.js').Budget} Budget */
@@ -160,6 +163,31 @@ function asBoolean(value, fallback) {
  */
 function asIsoDate(value) {
 	return typeof value === 'string' && isIsoDate(value) ? value : null;
+}
+
+/**
+ * As {@link asIsoDate}, but for a full date-time (the activity log's `timestamp`) rather than a
+ * calendar date — any string `Date.parse` accepts, not just `YYYY-MM-DD`.
+ *
+ * @param {unknown} value
+ * @param {string} fallback
+ * @returns {string}
+ */
+function asIsoDateTime(value, fallback) {
+	return typeof value === 'string' && !Number.isNaN(Date.parse(value)) ? value : fallback;
+}
+
+/**
+ * A plain object, or `null` if the value is not one. Used for the activity log's `snapshot`,
+ * which holds an arbitrary `Investment`/`Debt` record rather than one fixed shape.
+ *
+ * @param {unknown} value
+ * @returns {Record<string, unknown> | null}
+ */
+function asRecordOrNull(value) {
+	return typeof value === 'object' && value !== null && !Array.isArray(value)
+		? /** @type {Record<string, unknown>} */ (value)
+		: null;
 }
 
 /**
@@ -438,6 +466,29 @@ export function createStandardMilestones() {
 }
 
 /**
+ * A single activity log row — README.md → "Net Worth Tracking": "Activity log with revert support
+ * for deleted entries" (issue #14). `timestamp` defaults to "now"; `lib/activity-log.js`'s
+ * `logEntity*` helpers are the normal way to create one, so a caller building one directly is
+ * usually a test.
+ *
+ * @param {Partial<ActivityLogEntry>} [overrides]
+ * @returns {ActivityLogEntry}
+ */
+export function createActivityLogEntry(overrides = {}) {
+	return {
+		id: createId('log'),
+		timestamp: new Date().toISOString(),
+		action: 'added',
+		entity_type: 'debt',
+		entity_id: '',
+		entity_name: '',
+		snapshot: null,
+		reverted: false,
+		...overrides
+	};
+}
+
+/**
  * A complete, empty document — what a brand new Gist gets seeded with.
  *
  * @param {Partial<AppData>} [overrides]
@@ -454,6 +505,7 @@ export function createAppData(overrides = {}) {
 		dividends: [],
 		milestones: createStandardMilestones(),
 		budget: createBudget(),
+		activity_log: [],
 		...overrides
 	};
 }
@@ -715,6 +767,24 @@ function normaliseBudgetLineItem(raw) {
 }
 
 /**
+ * @param {unknown} raw
+ * @returns {ActivityLogEntry}
+ */
+function normaliseActivityLogEntry(raw) {
+	const source = asRecord(raw);
+	return {
+		id: asId(source.id, 'log'),
+		timestamp: asIsoDateTime(source.timestamp, new Date().toISOString()),
+		action: asOneOf(source.action, ACTIVITY_LOG_ACTIONS, 'added'),
+		entity_type: asOneOf(source.entity_type, ACTIVITY_LOG_ENTITY_TYPES, 'debt'),
+		entity_id: asString(source.entity_id),
+		entity_name: asString(source.entity_name),
+		snapshot: asRecordOrNull(source.snapshot),
+		reverted: asBoolean(source.reverted, false)
+	};
+}
+
+/**
  * README.md's outline writes the budget as `budget[]`; we store an object. Accept either, so a
  * document written against the literal outline still loads.
  *
@@ -762,7 +832,8 @@ export function normaliseAppData(raw) {
 		assets: asArray(source.assets).map(normaliseAsset),
 		dividends: asArray(source.dividends).map(normaliseDividend),
 		milestones: asArray(source.milestones).map(normaliseMilestone),
-		budget: normaliseBudget(source.budget)
+		budget: normaliseBudget(source.budget),
+		activity_log: asArray(source.activity_log).map(normaliseActivityLogEntry)
 	};
 }
 
@@ -1010,6 +1081,27 @@ export function validateAppData(data) {
 	});
 
 	validateBudget(data.budget, check);
+
+	checkUniqueIds(data.activity_log, 'activity_log', check);
+	data.activity_log.forEach((entry, index) => {
+		const path = `activity_log[${index}]`;
+		check(
+			!Number.isNaN(Date.parse(entry.timestamp)),
+			`${path}.timestamp`,
+			'must be a valid ISO date-time'
+		);
+		check(entry.entity_id !== '', `${path}.entity_id`, 'must not be empty');
+		check(
+			entry.action !== 'removed' || entry.snapshot !== null,
+			`${path}.snapshot`,
+			'a removed entry must carry a snapshot to support reverting the deletion'
+		);
+		check(
+			entry.action === 'removed' || !entry.reverted,
+			`${path}.reverted`,
+			'only a removed entry can be reverted'
+		);
+	});
 
 	return { valid: errors.length === 0, errors };
 }

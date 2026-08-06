@@ -4,6 +4,7 @@ import { INVESTMENT_TYPES, WRAPPERS } from './enums.js';
 import {
 	SCHEMA_VERSION,
 	compareMonthlyEntries,
+	createActivityLogEntry,
 	createAppData,
 	createAsset,
 	createBudget,
@@ -32,7 +33,7 @@ import {
 /* -------------------------------------------------------------------------- */
 
 describe('document shape matches README.md', () => {
-	it('has the eight top-level sections plus a schema version', () => {
+	it('has the eight top-level sections plus a schema version and activity log', () => {
 		expect(Object.keys(createAppData()).sort()).toEqual(
 			[
 				'schema_version',
@@ -43,7 +44,8 @@ describe('document shape matches README.md', () => {
 				'assets',
 				'dividends',
 				'milestones',
-				'budget'
+				'budget',
+				'activity_log'
 			].sort()
 		);
 	});
@@ -159,7 +161,21 @@ describe('document shape matches README.md', () => {
 			]
 		],
 		['milestones[]', createMilestone(), ['id', 'label', 'target', 'current', 'type']],
-		['budget', createBudget(), ['categories', 'bills', 'line_items']]
+		['budget', createBudget(), ['categories', 'bills', 'line_items']],
+		[
+			'activity_log[]',
+			createActivityLogEntry(),
+			[
+				'id',
+				'timestamp',
+				'action',
+				'entity_type',
+				'entity_id',
+				'entity_name',
+				'snapshot',
+				'reverted'
+			]
+		]
 	];
 
 	it.each(shapes)('%s has exactly the documented fields', (_name, record, fields) => {
@@ -359,7 +375,16 @@ describe('normaliseAppData', () => {
 			properties: [createProperty({ name: 'Home', value: 320_000, deal_expiry: '2028-09-30' })],
 			assets: [createAsset({ name: 'Watch', category: 'watches_jewellery', current_value: 4_000 })],
 			dividends: [createDividend({ name: 'VHYL', yield_pct: 3.4 })],
-			budget: createBudget({ categories: [createBudgetCategory({ name: 'Groceries' })] })
+			budget: createBudget({ categories: [createBudgetCategory({ name: 'Groceries' })] }),
+			activity_log: [
+				createActivityLogEntry({
+					action: 'removed',
+					entity_type: 'debt',
+					entity_id: 'debt_1',
+					entity_name: 'Old card',
+					snapshot: { id: 'debt_1', name: 'Old card', balance: 500 }
+				})
+			]
 		});
 
 		expect(normaliseAppData(JSON.parse(JSON.stringify(data)))).toEqual(data);
@@ -471,6 +496,34 @@ describe('normaliseAppData', () => {
 
 	it('is exposed as migrateAppData for callers loading a stored document', () => {
 		expect(migrateAppData({ profile: { name: 'Stored' } }).profile.name).toBe('Stored');
+	});
+
+	it('normalises an activity log entry, falling back on bad action/entity_type/timestamp', () => {
+		const data = normaliseAppData({
+			activity_log: [
+				{
+					action: 'archived',
+					entity_type: 'pension',
+					entity_id: 'debt_1',
+					entity_name: 'Halifax',
+					timestamp: 'not a date',
+					snapshot: 'not an object',
+					reverted: 'yes'
+				}
+			]
+		});
+		const entry = data.activity_log[0];
+		expect(entry.action).toBe('added');
+		expect(entry.entity_type).toBe('debt');
+		expect(entry.entity_id).toBe('debt_1');
+		expect(entry.snapshot).toBeNull();
+		expect(entry.reverted).toBe(false);
+		expect(Number.isNaN(Date.parse(entry.timestamp))).toBe(false);
+	});
+
+	it('generates an id for an activity log entry that arrives without one', () => {
+		const data = normaliseAppData({ activity_log: [{ action: 'added', entity_type: 'debt' }] });
+		expect(data.activity_log[0].id).toMatch(/^log_/);
 	});
 });
 
@@ -657,5 +710,59 @@ describe('validateAppData', () => {
 			'monthly_entries[0].month'
 		]);
 		for (const error of result.errors) expect(error.message).toBeTruthy();
+	});
+
+	it('accepts a removed activity log entry that carries a snapshot', () => {
+		const data = createAppData({
+			activity_log: [
+				createActivityLogEntry({
+					action: 'removed',
+					entity_type: 'debt',
+					entity_id: 'debt_1',
+					snapshot: { id: 'debt_1', balance: 500 }
+				})
+			]
+		});
+		expect(validateAppData(data).valid).toBe(true);
+	});
+
+	it('rejects a removed activity log entry with no snapshot to revert from', () => {
+		const data = createAppData({
+			activity_log: [
+				createActivityLogEntry({ action: 'removed', entity_id: 'debt_1', snapshot: null })
+			]
+		});
+		expect(paths(validateAppData(data))).toContain('activity_log[0].snapshot');
+	});
+
+	it('rejects an activity log entry marked reverted that was not a removal', () => {
+		const data = createAppData({
+			activity_log: [
+				createActivityLogEntry({ action: 'added', entity_id: 'debt_1', reverted: true })
+			]
+		});
+		expect(paths(validateAppData(data))).toContain('activity_log[0].reverted');
+	});
+
+	it('rejects an activity log entry with an unparseable timestamp', () => {
+		const data = createAppData({
+			activity_log: [createActivityLogEntry({ entity_id: 'debt_1', timestamp: 'whenever' })]
+		});
+		expect(paths(validateAppData(data))).toContain('activity_log[0].timestamp');
+	});
+
+	it('rejects an activity log entry with an empty entity_id', () => {
+		const data = createAppData({ activity_log: [createActivityLogEntry({ entity_id: '' })] });
+		expect(paths(validateAppData(data))).toContain('activity_log[0].entity_id');
+	});
+
+	it('rejects duplicate ids within the activity log', () => {
+		const data = createAppData({
+			activity_log: [
+				createActivityLogEntry({ id: 'log_1', entity_id: 'debt_1' }),
+				createActivityLogEntry({ id: 'log_1', entity_id: 'debt_2' })
+			]
+		});
+		expect(paths(validateAppData(data))).toContain('activity_log[1].id');
 	});
 });

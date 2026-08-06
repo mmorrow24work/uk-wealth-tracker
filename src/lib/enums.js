@@ -402,6 +402,42 @@ export const STANDARD_MILESTONE_TARGETS = Object.freeze([
 ]);
 
 /* -------------------------------------------------------------------------- */
+/* Activity log                                                                */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * What kind of record an activity log entry was recorded against. README.md → "Net Worth
+ * Tracking": "Activity log with revert support for deleted entries" — investments and debts are
+ * the two collections a monthly snapshot holds (issue #14's own scope).
+ * @typedef {'investment' | 'debt'} ActivityLogEntityType
+ */
+
+/** @type {readonly ActivityLogEntityType[]} */
+export const ACTIVITY_LOG_ENTITY_TYPES = Object.freeze(['investment', 'debt']);
+
+/** @type {Record<ActivityLogEntityType, string>} */
+export const ACTIVITY_LOG_ENTITY_TYPE_LABELS = Object.freeze({
+	investment: 'Investment',
+	debt: 'Debt'
+});
+
+/**
+ * What happened to the entity. Only `removed` entries carry a snapshot and are revertible — see
+ * `lib/activity-log.js`.
+ * @typedef {'added' | 'removed' | 'updated'} ActivityLogAction
+ */
+
+/** @type {readonly ActivityLogAction[]} */
+export const ACTIVITY_LOG_ACTIONS = Object.freeze(['added', 'removed', 'updated']);
+
+/** @type {Record<ActivityLogAction, string>} */
+export const ACTIVITY_LOG_ACTION_LABELS = Object.freeze({
+	added: 'Added',
+	removed: 'Removed',
+	updated: 'Updated'
+});
+
+/* -------------------------------------------------------------------------- */
 /* Currency                                                                    */
 /* -------------------------------------------------------------------------- */
 

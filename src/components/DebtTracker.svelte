@@ -12,6 +12,13 @@
 	 * `investments` is read-only here (holding entry is issue #8's monthly snapshot form); `debts`
 	 * is owned by this component and passed back via the bindable prop so a parent — eventually the
 	 * store, once #5 lands — can persist it.
+	 *
+	 * Every add/remove also writes to `activityLog` (README.md → "Net Worth Tracking": "Activity
+	 * log with revert support for deleted entries", issue #14) via `$lib/activity-log.js`, rendered
+	 * below the ratio card through the `ActivityLog` component. Removing a debt keeps a full
+	 * snapshot of it in the log entry, so "Revert" on a removed entry re-adds the exact same record
+	 * (same id, so it is recognisably "the same debt" again rather than a new one) without a second
+	 * "added" entry cluttering the log — the log already shows the removal as undone.
 	 */
 	import { DEBT_TYPES, DEBT_TYPE_LABELS } from '$lib/enums.js';
 	import { createDebt } from '$lib/model.js';
@@ -24,12 +31,20 @@
 		sumDebtBalances,
 		sumInvestmentValues
 	} from '$lib/debt.js';
+	import { logEntityAdded, logEntityRemoved, revertEntityRemoval } from '$lib/activity-log.js';
 	import { cn } from '$lib/utils.js';
 	import Card from './ui/card.svelte';
 	import Button from './ui/button.svelte';
+	import ActivityLog from './ActivityLog.svelte';
 
-	/** @type {{ investments?: import('$lib/types.js').Investment[], debts?: import('$lib/types.js').Debt[] }} */
-	let { investments = [], debts = $bindable([]) } = $props();
+	/**
+	 * @type {{
+	 * 	investments?: import('$lib/types.js').Investment[],
+	 * 	debts?: import('$lib/types.js').Debt[],
+	 * 	activityLog?: import('$lib/types.js').ActivityLogEntry[]
+	 * }}
+	 */
+	let { investments = [], debts = $bindable([]), activityLog = $bindable([]) } = $props();
 
 	let name = $state('');
 	/** @type {import('$lib/enums.js').DebtType} */
@@ -75,16 +90,16 @@
 		const trimmedName = name.trim();
 		if (trimmedName === '') return;
 
-		debts = [
-			...debts,
-			createDebt({
-				name: trimmedName,
-				type,
-				balance: Number(balance) || 0,
-				notes: notes.trim(),
-				exclude_from_net_worth: excludeFromNetWorth
-			})
-		];
+		const newDebt = createDebt({
+			name: trimmedName,
+			type,
+			balance: Number(balance) || 0,
+			notes: notes.trim(),
+			exclude_from_net_worth: excludeFromNetWorth
+		});
+
+		debts = [...debts, newDebt];
+		activityLog = logEntityAdded(activityLog, 'debt', newDebt);
 
 		name = '';
 		type = 'other';
@@ -95,7 +110,18 @@
 
 	/** @param {string} id */
 	function removeDebt(id) {
+		const removed = debts.find((debt) => debt.id === id);
+		if (!removed) return;
+
 		debts = debts.filter((debt) => debt.id !== id);
+		activityLog = logEntityRemoved(activityLog, 'debt', removed);
+	}
+
+	/** @param {string} logEntryId */
+	function revertDebtRemoval(logEntryId) {
+		const { log, entity } = revertEntityRemoval(activityLog, logEntryId);
+		activityLog = log;
+		if (entity) debts = [...debts, /** @type {import('$lib/types.js').Debt} */ (entity)];
 	}
 
 	/** @param {string} id */
@@ -265,4 +291,6 @@
 			{/if}
 		</p>
 	</Card>
+
+	<ActivityLog entries={activityLog} onRevert={revertDebtRemoval} />
 </div>
