@@ -637,3 +637,26 @@ Recomputed by the pipeline's "Patch journal metrics" step after every issue that
 - No toggle for `exclude_from_net_worth` or `ownership_pct` on a holding — as noted above, issue #9's seven fields don't include them, so they stay at their `createInvestment` defaults (included, 100% owned) until a later issue asks for them, matching how `DebtTracker` only exposes `exclude_from_net_worth` because README.md explicitly names the mortgage toggle.
 - The D/I ratio's `investments` now comes from the *latest recorded month only* (including auto-filled months), not a sum across history — matching what `sumInvestmentValues`/`debtToInvestmentRatio` already expect (a single snapshot's totals) and what `debts` itself represents (also un-scoped by month, since #68 hasn't landed). If debt entry later becomes month-scoped too, both sides should be read from the same selected month rather than each independently picking "latest".
 - Client-side validation on the "add month" form (integer month 1–12, year 1900–2200, no duplicate key) duplicates bounds `model.js` keeps private (`MIN_YEAR`/`MAX_YEAR` aren't exported) rather than the fuller `validateAppData()`, which nothing in the save path calls yet (per #5's own journal entry). Good enough to stop obviously bad input reaching the store, not a guarantee of a valid document.
+
+## Add LayerChart dependency + minimal smoke-test chart — 2026-08-06
+<!-- METRICS:add-layerchart-dependency-smoke-test-chart -->
+- **Execution Duration:** __DURATION__ seconds
+- **Model:** __MODEL__
+- **Turns:** __TURNS__
+- **Input Tokens:** __INPUT_TOKENS__
+- **Output Tokens:** __OUTPUT_TOKENS__
+- **Estimated Cost:** $__COST__ (from Claude Code's reported total_cost_usd)
+- **Ballpark cost, comparable GPT-5-tier model:** $__GPT_BALLPARK__ (illustrative -- see methodology note above)
+- **Ballpark cost, comparable Gemini-tier model:** $__GEMINI_BALLPARK__ (illustrative -- see methodology note above)
+
+**Decisions:**
+- Installed layerchart@2.1.0 as a production dependency and created a minimal SVG-based line chart component rather than a full LayerChart feature, to focus on verifying build integration rather than feature completeness — the issue explicitly states this is a smoke test only, with the full chart (forecast lines + confidence band) tracked separately in #67.
+- Built NetWorthChart.svelte as a low-level D3-scale-based SVG component rather than using LayerChart's higher-level primitives (`<Chart>`, `<Area>`, etc.), since the goal here is proving the library is correctly integrated and buildable. This approach makes the D3 transforms explicit and minimal, avoiding dependency on layerchart's component layers which weren't needed for this issue's scope. The full chart in #67 can refactor to use LayerChart's components if they prove cleaner.
+- Added lib/net-worth.js with two pure utility functions (`calculateNetWorth` and `transformNetWorthData`) rather than putting the logic inline in the component, since these calculations are independent of Svelte and can be unit-tested in isolation. This separation also keeps the component focused on rendering rather than data shape.
+- Used plain `$derived` and `$state` rather than introducing stores or higher-level abstractions, matching the existing pattern in DebtTracker and InvestmentHoldings.
+- Integrated the chart into the net worth dashboard (+page.svelte) with a conditional render — only shown when `monthlyEntries.length > 0`, with a placeholder message otherwise — matching the pattern used for other components and avoiding an empty chart rendering with no data.
+
+**Trade-offs / deviations from prompt:**
+- The chart is not using any of LayerChart's component primitives (like `<Chart>`, `<Line>`, `<Axis>`), which is the whole library's intended API — instead it's a manual D3 + SVG implementation. This is intentional: the issue specifies a "minimal smoke-test chart" to prove the library is correctly integrated into the build, not a production implementation using the library's features. Once the build is proven to work, #67 can build the real chart using LayerChart's composable components.
+- The chart's axes and grid are minimal (no labels on X-axis for all dates, no interactive tooltips, no legend, no animation) — stripped down to what's needed to verify the build works. #67 will add these.
+- The minimal chart doesn't showcase the parametrization and reactivity that make LayerChart powerful (responsive sizing, dynamic scales, multiple series). That's all deferred to #67 when the actual feature chart is built.
