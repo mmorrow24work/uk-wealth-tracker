@@ -15,9 +15,14 @@
 	 * separate, not-yet-built issue, so the milestone pills and retirement marker (#18) below are
 	 * rendered as a list rather than plotted on a chart; `$lib/milestones.js` is written against
 	 * `Forecast`, not against any chart library, so #12 can read it once the chart lands instead of
-	 * this issue inventing chart-pill placement math twice. The contributions-vs-growth panel (#20)
-	 * and the stress test overlay (#21) are separate issues; `forecastBand()` and each point's
-	 * `contributions`/`growth` split are already computed here for them to read.
+	 * this issue inventing chart-pill placement math twice. The stress test overlay (#21) is a
+	 * separate issue; `forecastBand()` is already computed here for it to read.
+	 *
+	 * The compounding-effect panel (#20) is the `CompoundingPanel` section at the bottom: it reads the
+	 * `contributions`/`growth` split every `ForecastPoint` already carries, and takes this component's
+	 * `Forecast` as a prop so the sliders above drive it too rather than it deriving a second set of
+	 * assumptions. It is handed the offsets of whichever summary rows are currently on screen, so it
+	 * follows the age zoom instead of contradicting it.
 	 *
 	 * The age range filter (#19) follows the same placeholder pattern #18 set: `$lib/age-filter.js`
 	 * is written against `Forecast`/`ForecastSummaryRow`, not against a chart's x-axis, so it "zooms"
@@ -36,6 +41,7 @@
 	import { forecastAgeBounds, summariseForecastByAge } from '$lib/age-filter.js';
 	import { ageAtPoint, milestoneCrossings, retirementMarker } from '$lib/milestones.js';
 	import { createInvestment, createProfile } from '$lib/model.js';
+	import CompoundingPanel from './CompoundingPanel.svelte';
 	import Card from './ui/card.svelte';
 
 	// Slider ranges are an invented UI convenience, not spec — README.md gives no bounds for either
@@ -216,6 +222,10 @@
 	);
 	const anchor = $derived(forecast?.series.realistic[0] ?? null);
 	const finalRow = $derived(rows.at(-1) ?? null);
+	// The months the summary table is currently showing — the compounding panel below follows them,
+	// so an age zoom moves both tables rather than leaving the two disagreeing about which horizons
+	// are worth showing.
+	const rowOffsets = $derived(rows.map((row) => row.offset));
 
 	/** Reset the age filter back to "not zoomed" without touching the birth year/month fields. */
 	function clearAgeFilter() {
@@ -601,6 +611,13 @@
 				</p>
 			{/if}
 		</div>
+
+		<CompoundingPanel
+			{forecast}
+			offsets={rowOffsets}
+			dobYear={parsedDobYear}
+			dobMonth={parsedDobMonth}
+		/>
 	{/if}
 
 	{#if hasHistory && anchor && anchor.investments === 0}

@@ -13,7 +13,8 @@
 	Where your net worth lands under three growth assumptions, live as you drag the growth and spread
 	sliders below, plus when you cross the £100k/£250k/£500k/£1M milestones and reach retirement age.
 	Zoom the table to a specific age range once you've entered a birth year. The compounding-effect
-	panel and the stress-test overlay land in later builds.
+	panel at the bottom splits that projection into what you pay in versus what your money earns, and
+	dates the month the second overtakes the first. The stress-test overlay lands in a later build.
 </p>
 
 <div class="mt-6 flex max-w-3xl flex-col gap-6">
