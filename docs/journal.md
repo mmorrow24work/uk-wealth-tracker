@@ -2,17 +2,19 @@
 
 Append-only log of each automated build-pipeline run, newest entries at the bottom. One entry per issue, added by the Claude Code session that implemented it, with a `<!-- METRICS:<slug> -->` block whose numbers are filled in afterward by the workflow from the run's actual duration/token usage.
 
-Entry format. The Claude Code session that implements the issue writes everything **except** the six placeholder tokens below (`191` etc.) verbatim — the pipeline's metrics-patch step replaces those tokens after the run finishes, since only it knows actual wall-clock duration and billed token usage:
+Entry format. The Claude Code session that implements the issue writes everything **except** the eight placeholder tokens below verbatim — the pipeline's metrics-patch step replaces those tokens after the run finishes, since only it knows actual wall-clock duration, billed token usage, and the ballpark cross-model figures computed from it:
 
 ```
 ## <Issue Title> — <YYYY-MM-DD>
 <!-- METRICS:<slug> -->
-- **Execution Duration:** 191 seconds
-- **Model:** claude-sonnet-5
-- **Turns:** 37
-- **Input Tokens:** n/a (execution log not retained for this manually-completed run)
-- **Output Tokens:** n/a (execution log not retained for this manually-completed run)
-- **Estimated Cost:** $0.9420 (from Claude Code's reported total_cost_usd)
+- **Execution Duration:** __DURATION__ seconds
+- **Model:** __MODEL__
+- **Turns:** __TURNS__
+- **Input Tokens:** __INPUT_TOKENS__
+- **Output Tokens:** __OUTPUT_TOKENS__
+- **Estimated Cost:** $__COST__ (from Claude Code's reported total_cost_usd)
+- **Ballpark cost, comparable GPT-5-tier model:** $__GPT_BALLPARK__ (illustrative -- see methodology note above)
+- **Ballpark cost, comparable Gemini-tier model:** $__GEMINI_BALLPARK__ (illustrative -- see methodology note above)
 
 **Decisions:**
 - ...
@@ -21,12 +23,42 @@ Entry format. The Claude Code session that implements the issue writes everythin
 - ...
 ```
 
+### Why tokens are usually n/a
+
+Every entry's Input/Output Tokens field is `n/a` except where a specific reason is given. Claude Code's per-call token breakdown lives only in the run's raw execution transcript (`execution_file`), which is written to a temp path on the ephemeral Actions runner and never uploaded as a workflow artifact — once the runner is torn down at the end of the job, it's gone for good. **Duration, turn count and total cost are recoverable even after the fact** (from GitHub's own Actions run logs/API, independent of that transcript), which is how the batch of historical entries below got backfilled on 2026-08-06 — but the input/output split specifically cannot be reconstructed from anything GitHub retains. If this matters going forward, the fix is to add a workflow step that uploads `execution_file` as a build artifact before the runner exits; not done yet.
+
+### What "Estimated Cost" actually means here
+
+This pipeline authenticates to Claude Code via a **Claude Code Max subscription** (OAuth), not pay-per-token API billing. `total_cost_usd` is Claude Code's own internal figure for what the run *would have cost* if metered at standard per-token API rates — it's a consistent, real yardstick for comparing runs against each other (which is what the Build Velocity table below uses it for), but it is **not an actual charge**. Subscription usage doesn't generate incremental per-issue cost; the real out-of-pocket cost of this entire pipeline is the flat monthly subscription fee, regardless of how many issues it works through.
+
+### Ballpark cost if run on a different provider's model
+
+The two "Ballpark cost" lines on each entry are a rough, clearly-illustrative estimate of what running the *same* issue might have cost on a comparably-tiered GPT-5-series or Gemini model, computed by scaling that entry's `total_cost_usd` by the ratio of published list prices (input/output $ per million tokens, snapshotted August 2026) between Claude's tier and the comparison model, assuming a representative 3:1 input:output token ratio typical of an agentic coding loop (lots of re-read file/tool-result context relative to what's generated):
+
+| Claude tier | GPT-5-tier comparison | Gemini-tier comparison |
+|---|---|---|
+| `claude-haiku-4-5` ($1/$5) | GPT-5 base ($0.625/$5) | Gemini 2.5 Flash ($0.30/$2.50) |
+| `claude-sonnet-5` ($3/$15) | GPT-5.4 ($2.50/$15) | Gemini 2.5 Pro ($1.25/$10) |
+| `claude-opus-5` ($5/$25) | GPT-5.5 ($5/$30) | Gemini 2.5 Pro, extended context ($2.50/$15) |
+
+**Read this as order-of-magnitude, not a real quote.** It reuses Claude's own total cost and reallocates it at another provider's rates under an assumed token ratio — it is not "the same task run on GPT-5/Gemini," since a different model would almost certainly use a genuinely different number of tokens for the same work (different tokenizer, different verbosity, different tool-call overhead), and third-party API pricing changes often. Useful for a rough sense of scale, not for budgeting.
+
 ## Build Velocity
 
 Recomputed by the pipeline's "Patch journal metrics" step after every issue that completes with real (non-placeholder) numbers below — this is a rolling mean over all such entries, not just the latest one.
 
 <!-- VELOCITY_STATS_START -->
-_Not enough completed entries with recorded metrics yet to compute stats._
+| Metric | Value |
+|---|---|
+| Issues with recorded metrics | 19 |
+| Mean time per issue | 9m 20s |
+| Mean turns per issue | 69 |
+| Mean input tokens per issue | n/a |
+| Mean output tokens per issue | n/a |
+| Mean estimated cost per issue (Claude, actual) | $3.9668 |
+| Mean ballpark cost per issue (GPT-5-tier, illustrative) | $4.0962 |
+| Mean ballpark cost per issue (Gemini-tier, illustrative) | $2.2421 |
+
 <!-- VELOCITY_STATS_END -->
 
 ## Scaffold bare SvelteKit project + directory structure — 2026-08-05
@@ -34,9 +66,11 @@ _Not enough completed entries with recorded metrics yet to compute stats._
 - **Execution Duration:** 191 seconds
 - **Model:** claude-sonnet-5
 - **Turns:** 37
-- **Input Tokens:** n/a (execution log not retained for this manually-completed run)
-- **Output Tokens:** n/a (execution log not retained for this manually-completed run)
+- **Input Tokens:** n/a (see "Why tokens are usually n/a" above)
+- **Output Tokens:** n/a (see "Why tokens are usually n/a" above)
 - **Estimated Cost:** $0.9420 (from Claude Code's reported total_cost_usd)
+- **Ballpark cost, comparable GPT-5-tier model:** $0.8831 (illustrative -- see methodology note above)
+- **Ballpark cost, comparable Gemini-tier model:** $0.5397 (illustrative -- see methodology note above)
 
 **Decisions:**
 - Used the official `sv create` CLI (`--template minimal --types jsdoc`) rather than hand-rolling config, since it produces an up-to-date SvelteKit 2 / Svelte 5 setup with the exact `build`/`check`/`lint` scripts CI expects, out of the box.
@@ -53,12 +87,15 @@ _Not enough completed entries with recorded metrics yet to compute stats._
 
 ## Define core data model + types — 2026-08-05
 <!-- METRICS:define-core-data-model-types -->
-- **Execution Duration:** __DURATION__ seconds
-- **Model:** __MODEL__
-- **Turns:** __TURNS__
-- **Input Tokens:** __INPUT_TOKENS__
-- **Output Tokens:** __OUTPUT_TOKENS__
-- **Estimated Cost:** __COST__
+- **Execution Duration:** 761 seconds
+- **Model:** claude-opus-5
+- **Turns:** 49
+- **Input Tokens:** n/a (see "Why tokens are usually n/a" above)
+- **Output Tokens:** n/a (see "Why tokens are usually n/a" above)
+- **Estimated Cost:** $4.4683
+- **Ballpark cost, comparable GPT-5-tier model:** $5.0268 (illustrative -- see methodology note above)
+- **Ballpark cost, comparable Gemini-tier model:** $2.5134 (illustrative -- see methodology note above)
+
 
 **Decisions:**
 - Split the model across three files rather than one: `src/lib/enums.js` (runtime value sets), `src/lib/types.js` (JSDoc typedefs, no runtime code) and `src/lib/model.js` (factories, normalisation, validation). Later tabs need the enums at runtime to populate dropdowns but only need the types at check time, so keeping them apart avoids importing a type-only module for its side effects.
@@ -85,12 +122,15 @@ _Not enough completed entries with recorded metrics yet to compute stats._
 
 ## Implement GitHub Gist persistence layer (lib/gist.js) — 2026-08-05
 <!-- METRICS:implement-github-gist-persistence-layer-lib-gist-js -->
-- **Execution Duration:** __DURATION__ seconds
-- **Model:** __MODEL__
-- **Turns:** __TURNS__
-- **Input Tokens:** __INPUT_TOKENS__
-- **Output Tokens:** __OUTPUT_TOKENS__
-- **Estimated Cost:** __COST__
+- **Execution Duration:** 468 seconds
+- **Model:** claude-sonnet-5
+- **Turns:** 64
+- **Input Tokens:** n/a (see "Why tokens are usually n/a" above)
+- **Output Tokens:** n/a (see "Why tokens are usually n/a" above)
+- **Estimated Cost:** $3.2393
+- **Ballpark cost, comparable GPT-5-tier model:** $3.0368 (illustrative -- see methodology note above)
+- **Ballpark cost, comparable Gemini-tier model:** $1.8558 (illustrative -- see methodology note above)
+
 
 **Decisions:**
 - Single gate, not two: `isGistConfigured()` checks only `VITE_GITHUB_TOKEN`. `VITE_GIST_ID` is optional — without it the module creates a private Gist itself on first `saveAppData()` call and caches the returned id in `localStorage` under `uk-wealth-tracker:gist-id`, since a Vite env var is fixed at build time and has no other way to remember an id the app generated at runtime. The issue's "create-if-missing" therefore covers two distinct cases: no Gist at all (create one), and an existing Gist that just doesn't have our file yet (the Gist PATCH API creates a named file that doesn't exist, so this needed no special-casing).
@@ -108,12 +148,15 @@ _Not enough completed entries with recorded metrics yet to compute stats._
 
 ## Build nav shell with tab routing — 2026-08-05
 <!-- METRICS:build-nav-shell-with-tab-routing -->
-- **Execution Duration:** __DURATION__ seconds
-- **Model:** __MODEL__
-- **Turns:** __TURNS__
-- **Input Tokens:** __INPUT_TOKENS__
-- **Output Tokens:** __OUTPUT_TOKENS__
-- **Estimated Cost:** __COST__
+- **Execution Duration:** 284 seconds
+- **Model:** claude-sonnet-5
+- **Turns:** n/a (see note above)
+- **Input Tokens:** n/a (see "Why tokens are usually n/a" above)
+- **Output Tokens:** n/a (see "Why tokens are usually n/a" above)
+- **Estimated Cost:** n/a -- execution log for this run predates Claude Code's compact result-summary output; only wall-clock duration could be recovered from GitHub's own Actions API, not turns/tokens/cost
+- **Ballpark cost, comparable GPT-5-tier model:** n/a (no recorded cost to scale from)
+- **Ballpark cost, comparable Gemini-tier model:** n/a (no recorded cost to scale from)
+
 
 **Decisions:**
 - Pulled the tab list and active-tab matching out of `+layout.svelte` into `src/lib/nav.js` (`NAV_TABS`, `isActiveTab`) rather than inlining both in the component. Tailwind (#40) and shadcn-svelte (#41) are still separate, un-started issues, so the layout itself has no component-testing harness available yet (no jsdom/testing-library in the project); keeping the tab config and the active-route logic as plain, dependency-free functions means the part of the nav shell most likely to have a bug — "is this the right tab to highlight" — is covered by ordinary `vitest` unit tests instead of going untested until #40/#41 land.
@@ -130,12 +173,15 @@ _Not enough completed entries with recorded metrics yet to compute stats._
 
 ## Wire up VITE_GITHUB_TOKEN / VITE_GIST_ID env handling — 2026-08-05
 <!-- METRICS:wire-up-vite-github-token-vite-gist-id-env-handling -->
-- **Execution Duration:** __DURATION__ seconds
-- **Model:** __MODEL__
-- **Turns:** __TURNS__
-- **Input Tokens:** __INPUT_TOKENS__
-- **Output Tokens:** __OUTPUT_TOKENS__
-- **Estimated Cost:** __COST__
+- **Execution Duration:** 194 seconds
+- **Model:** claude-haiku-4-5
+- **Turns:** n/a (see note above)
+- **Input Tokens:** n/a (see "Why tokens are usually n/a" above)
+- **Output Tokens:** n/a (see "Why tokens are usually n/a" above)
+- **Estimated Cost:** n/a -- execution log for this run predates Claude Code's compact result-summary output; only wall-clock duration could be recovered from GitHub's own Actions API, not turns/tokens/cost
+- **Ballpark cost, comparable GPT-5-tier model:** n/a (no recorded cost to scale from)
+- **Ballpark cost, comparable Gemini-tier model:** n/a (no recorded cost to scale from)
+
 
 **Decisions:**
 - The core environment variable reading was already implemented in `lib/gist.js` (lines 68–81: `getEnv()`, `getToken()`, `getConfiguredGistId()`) and tested in `gist.test.js` (lines 81–94: `isGistConfigured / getPersistenceMode`). The issue's request was to document the user-facing setup, not to implement it. Expanded the README's "Getting Started" section from a one-liner into a subsection that breaks installation and environment setup into discrete steps.
@@ -150,12 +196,15 @@ _Not enough completed entries with recorded metrics yet to compute stats._
 
 ## Add Tailwind CSS — 2026-08-05
 <!-- METRICS:add-tailwind-css -->
-- **Execution Duration:** __DURATION__ seconds
-- **Model:** __MODEL__
-- **Turns:** __TURNS__
-- **Input Tokens:** __INPUT_TOKENS__
-- **Output Tokens:** __OUTPUT_TOKENS__
-- **Estimated Cost:** __COST__
+- **Execution Duration:** 199 seconds
+- **Model:** claude-haiku-4-5
+- **Turns:** 70
+- **Input Tokens:** n/a (see "Why tokens are usually n/a" above)
+- **Output Tokens:** n/a (see "Why tokens are usually n/a" above)
+- **Estimated Cost:** $0.3266
+- **Ballpark cost, comparable GPT-5-tier model:** $0.2805 (illustrative -- see methodology note above)
+- **Ballpark cost, comparable Gemini-tier model:** $0.1388 (illustrative -- see methodology note above)
+
 
 **Decisions:**
 - Installed Tailwind CSS v4 with the new `@tailwindcss/postcss` plugin rather than v3 — v4 is the current release and recommended for new projects, and since this is early-stage scaffolding with no legacy dependencies, choosing v4 from the start avoids a migration later.
@@ -171,12 +220,15 @@ _Not enough completed entries with recorded metrics yet to compute stats._
 
 ## Add shadcn-svelte component library — 2026-08-05
 <!-- METRICS:add-shadcn-svelte-component-library -->
-- **Execution Duration:** __DURATION__ seconds
-- **Model:** __MODEL__
-- **Turns:** __TURNS__
-- **Input Tokens:** __INPUT_TOKENS__
-- **Output Tokens:** __OUTPUT_TOKENS__
-- **Estimated Cost:** __COST__
+- **Execution Duration:** 523 seconds
+- **Model:** claude-haiku-4-5
+- **Turns:** 92
+- **Input Tokens:** n/a (see "Why tokens are usually n/a" above)
+- **Output Tokens:** n/a (see "Why tokens are usually n/a" above)
+- **Estimated Cost:** $0.7409
+- **Ballpark cost, comparable GPT-5-tier model:** $0.6364 (illustrative -- see methodology note above)
+- **Ballpark cost, comparable Gemini-tier model:** $0.3149 (illustrative -- see methodology note above)
+
 
 **Decisions:**
 - Installed `shadcn-svelte` as a single `npm install` rather than running the CLI setup (`npx shadcn-svelte init`), since the interactive setup was blocking and the alternative — manual configuration — is simpler, more reproducible, and better suited to a CI environment. Manual setup involved creating a `shadcn.json` config file, adding the `utils.js` module with the `cn()` class-merging function, and extending the Tailwind color palette with shadcn's CSS variables.
@@ -194,12 +246,15 @@ _Not enough completed entries with recorded metrics yet to compute stats._
 
 ## Investment holding fields + account wrapper types — 2026-08-06
 <!-- METRICS:investment-holding-fields-account-wrapper-types -->
-- **Execution Duration:** __DURATION__ seconds
-- **Model:** __MODEL__
-- **Turns:** __TURNS__
-- **Input Tokens:** __INPUT_TOKENS__
-- **Output Tokens:** __OUTPUT_TOKENS__
-- **Estimated Cost:** __COST__
+- **Execution Duration:** 292 seconds
+- **Model:** claude-sonnet-5
+- **Turns:** 38
+- **Input Tokens:** n/a (see "Why tokens are usually n/a" above)
+- **Output Tokens:** n/a (see "Why tokens are usually n/a" above)
+- **Estimated Cost:** $1.9333
+- **Ballpark cost, comparable GPT-5-tier model:** $1.8125 (illustrative -- see methodology note above)
+- **Ballpark cost, comparable Gemini-tier model:** $1.1076 (illustrative -- see methodology note above)
+
 
 **Decisions:**
 - Audited the issue against the codebase before writing anything: every field it asks for (name, type, current value, purchase price, year purchased, monthly contribution, account wrapper) and every investment type it lists (Stocks ISA, SIPP, Shares, Crypto, Cash, Emergency Fund, Dividends, Property) was already implemented — `Investment` in `src/lib/types.js`/`model.js` and `INVESTMENT_TYPES`/`WRAPPERS` in `src/lib/enums.js` were built as part of #2 (`Define core data model + types`, merged as PR #43), which implemented README.md's full "Data Model" section — including this exact bullet from "Net Worth Tracking" — in one pass rather than issue-by-issue. This issue and #2 both trace back to the same README.md bullet list, so the backlog ended up with two tickets for one requirement.
@@ -214,12 +269,15 @@ _Not enough completed entries with recorded metrics yet to compute stats._
 
 ## Debt tracking with D/I ratio — 2026-08-06
 <!-- METRICS:debt-tracking-with-d-i-ratio -->
-- **Execution Duration:** __DURATION__ seconds
-- **Model:** __MODEL__
-- **Turns:** __TURNS__
-- **Input Tokens:** __INPUT_TOKENS__
-- **Output Tokens:** __OUTPUT_TOKENS__
-- **Estimated Cost:** __COST__
+- **Execution Duration:** 407 seconds
+- **Model:** claude-sonnet-5
+- **Turns:** 68
+- **Input Tokens:** n/a (see "Why tokens are usually n/a" above)
+- **Output Tokens:** n/a (see "Why tokens are usually n/a" above)
+- **Estimated Cost:** $2.9869
+- **Ballpark cost, comparable GPT-5-tier model:** $2.8002 (illustrative -- see methodology note above)
+- **Ballpark cost, comparable Gemini-tier model:** $1.7112 (illustrative -- see methodology note above)
+
 
 **Decisions:**
 - Unlike #9, this issue's two halves genuinely didn't exist yet: `Debt`/`createDebt`/`DEBT_TYPES` were already built by #2, but nothing computed a debt-to-investment ratio and no UI let a user enter a debt at all. Wrote both: `src/lib/debt.js` (the calculation) and `src/components/DebtTracker.svelte` (the entry form + ratio display).
@@ -239,12 +297,15 @@ _Not enough completed entries with recorded metrics yet to compute stats._
 
 ## Mortgage debt toggle (exclude from net worth) — 2026-08-06
 <!-- METRICS:mortgage-debt-toggle-exclude-from-net-worth -->
-- **Execution Duration:** __DURATION__ seconds
-- **Model:** __MODEL__
-- **Turns:** __TURNS__
-- **Input Tokens:** __INPUT_TOKENS__
-- **Output Tokens:** __OUTPUT_TOKENS__
-- **Estimated Cost:** __COST__
+- **Execution Duration:** 458 seconds
+- **Model:** claude-sonnet-5
+- **Turns:** 61
+- **Input Tokens:** n/a (see "Why tokens are usually n/a" above)
+- **Output Tokens:** n/a (see "Why tokens are usually n/a" above)
+- **Estimated Cost:** $2.6939
+- **Ballpark cost, comparable GPT-5-tier model:** $2.5255 (illustrative -- see methodology note above)
+- **Ballpark cost, comparable Gemini-tier model:** $1.5433 (illustrative -- see methodology note above)
+
 
 **Decisions:**
 - #10's `exclude_from_net_worth` flag and checkbox already existed on every debt, generic across all seven `DebtType`s, and #10's own journal entry explicitly deferred the "actually set this for mortgages" UI to this issue. So the mechanism (`sumDebtBalances`/`debtToInvestmentRatio` respecting the flag) needed no changes here — this issue is specifically about the mortgage case of that generic checkbox, not a second competing toggle.
@@ -263,12 +324,15 @@ _Not enough completed entries with recorded metrics yet to compute stats._
 
 ## Activity log with revert support — 2026-08-06
 <!-- METRICS:activity-log-with-revert-support -->
-- **Execution Duration:** __DURATION__ seconds
-- **Model:** __MODEL__
-- **Turns:** __TURNS__
-- **Input Tokens:** __INPUT_TOKENS__
-- **Output Tokens:** __OUTPUT_TOKENS__
-- **Estimated Cost:** __COST__
+- **Execution Duration:** 564 seconds
+- **Model:** claude-sonnet-5
+- **Turns:** 100
+- **Input Tokens:** n/a (see "Why tokens are usually n/a" above)
+- **Output Tokens:** n/a (see "Why tokens are usually n/a" above)
+- **Estimated Cost:** $4.7994
+- **Ballpark cost, comparable GPT-5-tier model:** $4.4994 (illustrative -- see methodology note above)
+- **Ballpark cost, comparable Gemini-tier model:** $2.7496 (illustrative -- see methodology note above)
+
 
 **Decisions:**
 - Added `ActivityLogEntry` and its `activity_log[]` collection to the shared schema (`types.js`, `model.js`, `enums.js` for the `ActivityLogAction`/`ActivityLogEntityType` enums) even though README.md's "Data Model" outline never mentions an activity log — the same call #2's journal entry made for `MonthlyEntry.id`. CLAUDE.md's architecture section is explicit that a new feature area should "extend the shared data model rather than introducing separate storage," and this issue is squarely a new feature area: giving it a schema home now means #5 (store) and #8 (monthly snapshot form) have somewhere to write to later instead of the log staying a component-local invention.
@@ -288,12 +352,15 @@ _Not enough completed entries with recorded metrics yet to compute stats._
 
 ## Auto-invest fill for missing months (compound growth) — 2026-08-06
 <!-- METRICS:auto-invest-fill-for-missing-months-compound-growth -->
-- **Execution Duration:** __DURATION__ seconds
-- **Model:** __MODEL__
-- **Turns:** __TURNS__
-- **Input Tokens:** __INPUT_TOKENS__
-- **Output Tokens:** __OUTPUT_TOKENS__
-- **Estimated Cost:** __COST__
+- **Execution Duration:** 877 seconds
+- **Model:** claude-opus-5
+- **Turns:** 81
+- **Input Tokens:** n/a (see "Why tokens are usually n/a" above)
+- **Output Tokens:** n/a (see "Why tokens are usually n/a" above)
+- **Estimated Cost:** $7.7714
+- **Ballpark cost, comparable GPT-5-tier model:** $8.7428 (illustrative -- see methodology note above)
+- **Ballpark cost, comparable Gemini-tier model:** $4.3714 (illustrative -- see methodology note above)
+
 
 **Decisions:**
 - The monthly rate is geometric — `(1 + annual)^(1/12) - 1`, not `annual / 12`. This is the issue's "get the compounding math right" line taken literally: at a 5% assumption the naive division gives 0.4167%/month, which compounds to 5.116% a year, so every twelve filled months would silently add an extra 0.116% that no downstream forecast could see or subtract. `monthlyGrowthRate` is exported and unit-tested by the property that actually matters — twelve applications reproduce the annual rate to twelve decimal places — rather than by a hard-coded expected number.
@@ -319,12 +386,15 @@ _Not enough completed entries with recorded metrics yet to compute stats._
 
 ## Three-scenario forecast projections — 2026-08-06
 <!-- METRICS:three-scenario-forecast-projections -->
-- **Execution Duration:** __DURATION__ seconds
-- **Model:** __MODEL__
-- **Turns:** __TURNS__
-- **Input Tokens:** __INPUT_TOKENS__
-- **Output Tokens:** __OUTPUT_TOKENS__
-- **Estimated Cost:** __COST__
+- **Execution Duration:** 857 seconds
+- **Model:** claude-opus-5
+- **Turns:** 65
+- **Input Tokens:** n/a (see "Why tokens are usually n/a" above)
+- **Output Tokens:** n/a (see "Why tokens are usually n/a" above)
+- **Estimated Cost:** $6.6435
+- **Ballpark cost, comparable GPT-5-tier model:** $7.4739 (illustrative -- see methodology note above)
+- **Ballpark cost, comparable Gemini-tier model:** $3.7370 (illustrative -- see methodology note above)
+
 
 **Decisions:**
 - The three scenarios differ **only by a parallel shift of the growth assumption**, expressed as a spread in percentage points: realistic is the user's own rate, pessimistic and optimistic are that rate minus and plus the spread (default ±2pp, so 3% / 5% / 7% at the profile default). Written as a numbered convention at the top of `src/lib/forecast.js` because it is the line that keeps this issue apart from its neighbours — a crash with a magnitude, a date and a recovery curve is the stress-test overlay (#21), and path-dependent return sequences are the Monte Carlo simulator (Phase 2). A parallel shift is also what makes the output a smooth confidence band for #12 to shade, rather than three unrelated stories that happen to be drawn on one chart.
@@ -353,12 +423,15 @@ _Not enough completed entries with recorded metrics yet to compute stats._
 
 ## Live growth-rate sliders — 2026-08-06
 <!-- METRICS:live-growth-rate-sliders -->
-- **Execution Duration:** __DURATION__ seconds
-- **Model:** __MODEL__
-- **Turns:** __TURNS__
-- **Input Tokens:** __INPUT_TOKENS__
-- **Output Tokens:** __OUTPUT_TOKENS__
-- **Estimated Cost:** __COST__
+- **Execution Duration:** 353 seconds
+- **Model:** claude-sonnet-5
+- **Turns:** 50
+- **Input Tokens:** n/a (see "Why tokens are usually n/a" above)
+- **Output Tokens:** n/a (see "Why tokens are usually n/a" above)
+- **Estimated Cost:** $1.8981
+- **Ballpark cost, comparable GPT-5-tier model:** $1.7795 (illustrative -- see methodology note above)
+- **Ballpark cost, comparable Gemini-tier model:** $1.0874 (illustrative -- see methodology note above)
+
 
 **Decisions:**
 - #16's journal entry already called this shot: "swapping an `<input type="number">` for a range control later touches markup only, since the parsing and validation already sit in one helper." That held exactly — `ForecastProjections.svelte`'s `$derived` chain (`parse` → `parsedRate`/`parsedSpread` → `assumptionsAreValid` → `forecast`) needed no changes at all. Svelte 5 runes already recompute on every keystroke or input event regardless of control type, so "live" was really about adding the slider control, not adding reactivity that didn't exist.
@@ -376,12 +449,15 @@ _Not enough completed entries with recorded metrics yet to compute stats._
 
 ## Retirement + net worth milestone markers on chart — 2026-08-06
 <!-- METRICS:retirement-net-worth-milestone-markers-on-chart -->
-- **Execution Duration:** __DURATION__ seconds
-- **Model:** __MODEL__
-- **Turns:** __TURNS__
-- **Input Tokens:** __INPUT_TOKENS__
-- **Output Tokens:** __OUTPUT_TOKENS__
-- **Estimated Cost:** __COST__
+- **Execution Duration:** 565 seconds
+- **Model:** claude-sonnet-5
+- **Turns:** 93
+- **Input Tokens:** n/a (see "Why tokens are usually n/a" above)
+- **Output Tokens:** n/a (see "Why tokens are usually n/a" above)
+- **Estimated Cost:** $3.5071
+- **Ballpark cost, comparable GPT-5-tier model:** $3.2879 (illustrative -- see methodology note above)
+- **Ballpark cost, comparable Gemini-tier model:** $2.0092 (illustrative -- see methodology note above)
+
 
 **Decisions:**
 - Built the crossing-date math as a standalone `src/lib/milestones.js` rather than folding it into `forecast.js`, and wrote it against `Forecast`/`ForecastPoint` rather than any chart library, even though the issue title says "on chart" — #12 (the actual LayerChart-based net worth chart) is a separate, still-open issue with nothing built yet, so there is no chart to draw a pill or a vertical line onto. This follows the same forward-compatible pattern `forecast.js` already used for #12 (`forecastBand()`'s low/mid/high computed before any chart existed to read it): `milestoneCrossings()`/`retirementMarker()` are ready for #12 to import once it lands, instead of #12 having to reinvent crossing-date math or this issue building a throwaway chart of its own.
@@ -401,12 +477,15 @@ _Not enough completed entries with recorded metrics yet to compute stats._
 
 ## Age filter for forecast chart — 2026-08-06
 <!-- METRICS:age-filter-for-forecast-chart -->
-- **Execution Duration:** __DURATION__ seconds
-- **Model:** __MODEL__
-- **Turns:** __TURNS__
-- **Input Tokens:** __INPUT_TOKENS__
-- **Output Tokens:** __OUTPUT_TOKENS__
-- **Estimated Cost:** __COST__
+- **Execution Duration:** 872 seconds
+- **Model:** claude-sonnet-5
+- **Turns:** 98
+- **Input Tokens:** n/a (see "Why tokens are usually n/a" above)
+- **Output Tokens:** n/a (see "Why tokens are usually n/a" above)
+- **Estimated Cost:** $5.2721
+- **Ballpark cost, comparable GPT-5-tier model:** $4.9426 (illustrative -- see methodology note above)
+- **Ballpark cost, comparable Gemini-tier model:** $3.0204 (illustrative -- see methodology note above)
+
 
 **Decisions:**
 - Same placeholder pattern #18 established for the still-missing chart (#12): built a new `src/lib/age-filter.js` written against `Forecast`/`ForecastPoint`/`ForecastSummaryRow`, not against any chart library, so #12 can filter the series it feeds a chart's x-axis domain with the exported `filterPointsByAge` directly instead of reinventing age-window math a second time. Today, with no chart to zoom, the filter is applied to the one forecast UI that exists — `ForecastProjections`'s scenario summary table.
@@ -430,12 +509,15 @@ _Not enough completed entries with recorded metrics yet to compute stats._
 
 ## Compounding effect panel (contributions vs growth split) — 2026-08-06
 <!-- METRICS:compounding-effect-panel-contributions-vs-growth-split -->
-- **Execution Duration:** __DURATION__ seconds
-- **Model:** __MODEL__
-- **Turns:** __TURNS__
-- **Input Tokens:** __INPUT_TOKENS__
-- **Output Tokens:** __OUTPUT_TOKENS__
-- **Estimated Cost:** __COST__
+- **Execution Duration:** 879 seconds
+- **Model:** claude-opus-5
+- **Turns:** 67
+- **Input Tokens:** n/a (see "Why tokens are usually n/a" above)
+- **Output Tokens:** n/a (see "Why tokens are usually n/a" above)
+- **Estimated Cost:** $6.2220
+- **Ballpark cost, comparable GPT-5-tier model:** $6.9998 (illustrative -- see methodology note above)
+- **Ballpark cost, comparable Gemini-tier model:** $3.4999 (illustrative -- see methodology note above)
+
 
 **Decisions:**
 - The new `src/lib/compounding.js` does **no compounding arithmetic of its own** — it reads, divides and dates. #16 already accumulates cumulative `contributions` and `growth` onto every `ForecastPoint` as it walks each month ("the part of the month's value change the contribution didn't explain", recorded there precisely because the projection is the only place that knows it), so recomputing the split here from rates, frequencies and fund fees would produce a second answer that drifts from the lines the rest of the tab draws. That is stated as convention 1 at the top of the module, and it is what makes the issue's "verify the split math is internally consistent with the forecast projections" a checkable property rather than a hope.
@@ -460,12 +542,15 @@ _Not enough completed entries with recorded metrics yet to compute stats._
 
 ## Stress test overlay — 2026-08-06
 <!-- METRICS:stress-test-overlay -->
-- **Execution Duration:** __DURATION__ seconds
-- **Model:** __MODEL__
-- **Turns:** __TURNS__
-- **Input Tokens:** __INPUT_TOKENS__
-- **Output Tokens:** __OUTPUT_TOKENS__
-- **Estimated Cost:** __COST__
+- **Execution Duration:** 1117 seconds
+- **Model:** claude-opus-5
+- **Turns:** 79
+- **Input Tokens:** n/a (see "Why tokens are usually n/a" above)
+- **Output Tokens:** n/a (see "Why tokens are usually n/a" above)
+- **Estimated Cost:** $9.5593
+- **Ballpark cost, comparable GPT-5-tier model:** $10.7542 (illustrative -- see methodology note above)
+- **Ballpark cost, comparable Gemini-tier model:** $5.3771 (illustrative -- see methodology note above)
+
 
 **Decisions:**
 - Built the crash as a *seam in the existing projector*, not as a second projector. `forecast.js` gained one optional option — `adjustMonth(offset)`, returning a `ForecastMonthAdjustment` — and `stress-test.js` builds the whole crash-and-recovery path out of it. The alternative (a parallel month-walking loop in the new module) would have duplicated ~40 lines of the arithmetic every other number on the tab depends on, with drift caught only if someone noticed. Instead the overlay *is* the baseline's arithmetic with two months' worth of assumptions swapped, and the test suite pins that literally: a zero-magnitude stress deep-equals the unstressed forecast, point for point, so any future divergence between the two paths fails CI rather than quietly changing the numbers.
@@ -493,12 +578,15 @@ _Not enough completed entries with recorded metrics yet to compute stats._
 
 ## Set up Svelte stores for global reactive state (lib/store.js) — 2026-08-06
 <!-- METRICS:set-up-svelte-stores-for-global-reactive-state-lib-store-js -->
-- **Execution Duration:** __DURATION__ seconds
-- **Model:** __MODEL__
-- **Turns:** __TURNS__
-- **Input Tokens:** __INPUT_TOKENS__
-- **Output Tokens:** __OUTPUT_TOKENS__
-- **Estimated Cost:** __COST__
+- **Execution Duration:** 779 seconds
+- **Model:** claude-sonnet-5
+- **Turns:** 64
+- **Input Tokens:** n/a (see "Why tokens are usually n/a" above)
+- **Output Tokens:** n/a (see "Why tokens are usually n/a" above)
+- **Estimated Cost:** $4.4307
+- **Ballpark cost, comparable GPT-5-tier model:** $4.1538 (illustrative -- see methodology note above)
+- **Ballpark cost, comparable Gemini-tier model:** $2.5383 (illustrative -- see methodology note above)
+
 
 **Decisions:**
 - Used the classic `writable`/`get` API from `svelte/store`, not Svelte 5 runes, even though every component built since #4 uses `$state`/`$props`/`$bindable`. Runes only work inside `.svelte`/`.svelte.js` files; this issue's own title names the file `lib/store.js`, and every other `$lib` module is plain `.js` re-exported through `index.js`'s `export *`. A classic store is also the literal reading of "Svelte stores" in the issue title, and it is what lets `store.test.js` unit-test hydrate/debounce/error-recovery with plain `vitest` (mocking `./gist.js`) — no jsdom or component harness needed, consistent with this codebase's established test-weight convention.

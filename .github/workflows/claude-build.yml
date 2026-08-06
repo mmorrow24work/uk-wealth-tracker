@@ -162,8 +162,9 @@ jobs:
             2. Append one entry to docs/journal.md, following the format documented at the top of that
                file. Use today's date. Write the "Decisions" and "Trade-offs / deviations from prompt"
                sections yourself, in the same voice and level of detail as any existing entries. For the
-               <!-- METRICS:... --> block, copy the six placeholder tokens (__DURATION__, __MODEL__,
-               __TURNS__, __INPUT_TOKENS__, __OUTPUT_TOKENS__, __COST__) verbatim into the new entry --
+               <!-- METRICS:... --> block, copy the eight placeholder tokens (__DURATION__, __MODEL__,
+               __TURNS__, __INPUT_TOKENS__, __OUTPUT_TOKENS__, __COST__, __GPT_BALLPARK__,
+               __GEMINI_BALLPARK__) verbatim into the new entry --
                do not fill them in yourself; a later automated step replaces them with the real numbers
                for this run.
 
@@ -229,6 +230,19 @@ jobs:
           cost=$(awk -v i="$input_tokens" -v o="$output_tokens" -v ir="$in_rate" -v orr="$out_rate" \
             'BEGIN { printf "%.4f", (i/1000000*ir) + (o/1000000*orr) }')
 
+          # Ballpark cost on a comparably-tiered GPT-5-series / Gemini model,
+          # scaling Claude's own actual cost by the ratio of blended list
+          # prices (see the methodology note in docs/journal.md for the
+          # exact comparison models, rates and the assumed 3:1 input:output
+          # ratio this is derived from). Illustrative only.
+          case "$model" in
+            claude-opus-5) gpt_factor=1.125; gem_factor=0.5625 ;;
+            claude-haiku-4-5) gpt_factor=0.859; gem_factor=0.425 ;;
+            *) gpt_factor=0.9375; gem_factor=0.5729 ;;
+          esac
+          gpt_ballpark=$(awk -v c="$cost" -v f="$gpt_factor" 'BEGIN { printf "%.4f", c * f }')
+          gemini_ballpark=$(awk -v c="$cost" -v f="$gem_factor" 'BEGIN { printf "%.4f", c * f }')
+
           # Patch only the LAST (i.e. newest, since the journal is
           # append-only) <!-- METRICS: ... --> block in the file, not every
           # occurrence of these tokens. A plain `sed -i s/__DURATION__/.../`
@@ -239,6 +253,7 @@ jobs:
           # this one run's numbers. Caught before it ever fired for real.
           DURATION="$duration" MODEL="$model" TURNS="$turns" \
           INPUT_TOKENS="$input_tokens" OUTPUT_TOKENS="$output_tokens" COST="$cost" \
+          GPT_BALLPARK="$gpt_ballpark" GEMINI_BALLPARK="$gemini_ballpark" \
           python3 - <<'PYEOF'
           import os
           import re
@@ -259,6 +274,8 @@ jobs:
               ("__INPUT_TOKENS__", os.environ["INPUT_TOKENS"]),
               ("__OUTPUT_TOKENS__", os.environ["OUTPUT_TOKENS"]),
               ("__COST__", os.environ["COST"]),
+              ("__GPT_BALLPARK__", os.environ["GPT_BALLPARK"]),
+              ("__GEMINI_BALLPARK__", os.environ["GEMINI_BALLPARK"]),
           ]:
               tail = tail.replace(token, value, 1)
 
@@ -277,10 +294,19 @@ jobs:
           with open("docs/journal.md") as f:
               text = f.read()
 
-          durations = [int(x) for x in re.findall(r"\*\*Execution Duration:\*\* (\d+) seconds", text)]
-          input_toks = [int(x) for x in re.findall(r"\*\*Input Tokens:\*\* (\d+)\b", text)]
-          output_toks = [int(x) for x in re.findall(r"\*\*Output Tokens:\*\* (\d+)\b", text)]
-          costs = [float(x) for x in re.findall(r"\*\*Estimated Cost:\*\* \$([0-9.]+)", text)]
+          # Only look at real entries (after the Build Velocity section) --
+          # the intro's example template block above it uses realistic-
+          # looking numbers that would otherwise get counted as a real
+          # entry, silently inflating every mean by one bogus data point.
+          entries_text = text[text.index("<!-- VELOCITY_STATS_END -->"):]
+
+          durations = [int(x) for x in re.findall(r"\*\*Execution Duration:\*\* (\d+) seconds", entries_text)]
+          turns = [int(x) for x in re.findall(r"\*\*Turns:\*\* (\d+)\b", entries_text)]
+          input_toks = [int(x) for x in re.findall(r"\*\*Input Tokens:\*\* (\d+)\b", entries_text)]
+          output_toks = [int(x) for x in re.findall(r"\*\*Output Tokens:\*\* (\d+)\b", entries_text)]
+          costs = [float(x) for x in re.findall(r"\*\*Estimated Cost:\*\* \$([0-9.]+)", entries_text)]
+          gpt_costs = [float(x) for x in re.findall(r"comparable GPT-5-tier model:\*\* \$([0-9.]+)", entries_text)]
+          gem_costs = [float(x) for x in re.findall(r"comparable Gemini-tier model:\*\* \$([0-9.]+)", entries_text)]
 
           def mean(xs):
               return sum(xs) / len(xs) if xs else None
@@ -302,9 +328,12 @@ jobs:
               "|---|---|\n"
               f"| Issues with recorded metrics | {len(durations)} |\n"
               f"| Mean time per issue | {fmt_duration(mean(durations))} |\n"
+              f"| Mean turns per issue | {fmt_num(mean(turns))} |\n"
               f"| Mean input tokens per issue | {fmt_num(mean(input_toks))} |\n"
               f"| Mean output tokens per issue | {fmt_num(mean(output_toks))} |\n"
-              f"| Mean estimated cost per issue | {fmt_cost(mean(costs))} |\n"
+              f"| Mean estimated cost per issue (Claude, actual) | {fmt_cost(mean(costs))} |\n"
+              f"| Mean ballpark cost per issue (GPT-5-tier, illustrative) | {fmt_cost(mean(gpt_costs))} |\n"
+              f"| Mean ballpark cost per issue (Gemini-tier, illustrative) | {fmt_cost(mean(gem_costs))} |\n"
           )
 
           text = re.sub(
