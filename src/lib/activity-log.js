@@ -106,13 +106,24 @@ export function isRevertible(entry) {
  * has already been checked, and a log entry going missing between render and click is not
  * exceptional enough to throw over.
  *
+ * `expectedEntityType`, when passed, makes the same true for a *type* mismatch: now that the shared
+ * log holds more than one `entity_type` (debts since #14, investments since #8), each owner renders
+ * its own `ActivityLog` instance against the *same* array — without this check, `DebtTracker`'s
+ * revert handler would happily mark an investment's removal reverted and hand back an `Investment`
+ * snapshot for the caller to push onto its `debts` array, and vice versa.
+ *
  * @param {readonly import('./types.js').ActivityLogEntry[]} log
  * @param {string} logEntryId
+ * @param {import('./enums.js').ActivityLogEntityType} [expectedEntityType]
  * @returns {{ log: import('./types.js').ActivityLogEntry[], entity: Record<string, unknown> | null }}
  */
-export function revertEntityRemoval(log, logEntryId) {
+export function revertEntityRemoval(log, logEntryId, expectedEntityType) {
 	const target = log.find((entry) => entry.id === logEntryId);
-	if (!target || !isRevertible(target)) {
+	if (
+		!target ||
+		!isRevertible(target) ||
+		(expectedEntityType !== undefined && target.entity_type !== expectedEntityType)
+	) {
 		return { log: [...log], entity: null };
 	}
 	return {

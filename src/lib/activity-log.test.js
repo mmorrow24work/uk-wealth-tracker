@@ -170,6 +170,24 @@ describe('revertEntityRemoval', () => {
 
 		expect(log).toEqual(snapshotBefore);
 	});
+
+	it('is a no-op when expectedEntityType does not match the entry', () => {
+		const log = logEntityRemoved([], 'debt', createDebt({ id: 'debt_1', name: 'Card' }));
+		const result = revertEntityRemoval(log, log[0].id, 'investment');
+
+		expect(result.entity).toBeNull();
+		expect(result.log).toEqual(log);
+	});
+
+	it('reverts as normal when expectedEntityType matches the entry', () => {
+		const investment = createInvestment({ id: 'inv_1', name: 'Vanguard ISA' });
+		const log = logEntityRemoved([], 'investment', investment);
+
+		const result = revertEntityRemoval(log, log[0].id, 'investment');
+
+		expect(result.entity).toEqual(investment);
+		expect(result.log[0].reverted).toBe(true);
+	});
 });
 
 describe('describeActivityLogEntry', () => {
