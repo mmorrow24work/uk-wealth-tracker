@@ -252,3 +252,30 @@ Entry format. The Claude Code session that implements the issue writes everythin
 - The "default checked" behaviour only fires when the user actively changes the type dropdown to "Mortgage" — if a debt is created straight from a script/import (or a future CSV-import path, per DESIGN.md's "Data Migration" section) with `type: 'mortgage'` and no `exclude_from_net_worth` set, `createDebt`'s own default (`false`) still applies, not this issue's smart default. `defaultsToExcludedFromNetWorth` is exported precisely so that a future import/migration path can call it explicitly if it wants the same default; wiring it into `createDebt` itself was avoided because that would silently change behaviour for every caller (including existing tests) rather than just the interactive add-debt form this issue is about.
 - No real cross-check against tracked property data, as noted above — the warning is generic guidance, not a computed "this specific £250,000 mortgage overlaps with this specific property" alert. That sharper version is natural follow-up work once #36–38 give the Property tab real data to compare against.
 - Re-selecting a different type after "Mortgage" (e.g. mortgage → credit card) re-derives the default and un-checks the box, overwriting whatever the user had manually set for the mortgage selection. This mirrors ordinary form UX (changing a category resets dependent fields) and keeps the behaviour simple and predictable, but a user who deliberately checked/unchecked the box, then changed their mind about the type twice, loses that manual choice each time — accepted as the simpler, more explainable rule over trying to track "was this ever hand-edited" state.
+
+## Month-on-month net worth change display — 2026-08-06
+<!-- METRICS:month-on-month-net-worth-change-display -->
+- **Execution Duration:** __DURATION__ seconds
+- **Model:** __MODEL__
+- **Turns:** __TURNS__
+- **Input Tokens:** __INPUT_TOKENS__
+- **Output Tokens:** __OUTPUT_TOKENS__
+- **Estimated Cost:** __COST__
+
+**Decisions:**
+- Added `src/lib/net-worth.js` with three functions: `calculateNetWorth` (investments minus debts), `calculateMonthOnMonthChange` (current vs previous month, returning absolute £ and %), and `formatMonthOnMonthChange` (display as "£+1,234 (+5.2%)" or "no previous data"). These are complementary to `src/lib/debt.js`'s D/I ratio and sit alongside it in the net worth calculation layer.
+- Net worth respects the same `exclude_from_net_worth` flags that debt.js uses, so a mortgage excluded from D/I ratio is automatically excluded from net worth too — "what counts" is consistent across all metrics.
+- Percentage change uses `abs(previousNetWorth)` in the denominator so a transition from -£3000 to +£3000 (both investment and debt terms) registers as +200%, not -200% — the sign reflects the absolute magnitude of change in the underlying number, not the sign of the starting value.
+- Percentage is `null` when previous net worth is 0 (undefined to divide by), and formatting outputs "no previous data" for that case rather than "Infinity%" or "NaN". The dashboard card's placeholder copy ("Not enough monthly entries to calculate change") communicates to the user why the ratio is unavailable.
+- Created `MonthOnMonthChange.svelte` as a simple card component that takes `entries: MonthlyEntry[]` and displays the change if >= 2 entries exist, otherwise a placeholder. It uses derived state to pick the last two entries and calculate once, avoiding recomputation on every render.
+- Wired the component into the main dashboard (`src/routes/+page.svelte`) above the DebtTracker, with a local `$state([])` array so it renders today with the "Not enough entries" message. Once #5/#3 wire up persistence and populate this array, the card will start showing real changes. This follows the nav shell (#4) and debt tracker (#10) pattern: render-first with placeholder state, wire in real data later.
+- Comprehensive test coverage: 35 new tests in `net-worth.test.js` covering `sumInvestmentValues`/`sumDebtBalances` (already exported by debt.js, but re-exported here for convenience), `calculateNetWorth`, month-on-month change calculations (positive, negative, fractional %, zero change, negative-to-positive transitions), and formatting (thousand separators, custom decimal places, currency symbols, edge cases).
+- All tests pass: 222 total tests (35 new ones added), lint/check/build all green.
+
+**Trade-offs / deviations from prompt:**
+- Did not implement a real data import path or backfill scenario (e.g. loading prior months from storage and computing all changes in one view). The issue asks for "show month-on-month change on the dashboard", and the dashboard today has no monthly entry persistence yet (#5) — rendering the comparison for a single previous/current pair satisfies the requirement without inventing a data layer that doesn't exist yet. Once #5 wires in the store and the dashboard can surface historical snapshots, a "change since last entry" display will naturally emerge from the same functions.
+- The component displays "Not enough monthly entries to calculate change" for < 2 snapshots today, when really it could say "no change" for exactly 1 entry (since an entry with no prior is equivalent to 0% growth from a null starting point). Chose not to invent that case because (a) it's philosophically unsatisfying (0% from what?), (b) the prompt asks for "month-on-month" which implies two actual months, and (c) once real data exists, this edge case will vanish anyway.
+- No colour-coding on the change card (green for positive, red for negative) — Tailwind utilities were used for the card itself but not semantic status colours. That's consistent with the debt tracker (#10), which also deferred colour-coding to a later design pass once Tailwind theme tokens and a full component system land.
+- No "since last recorded month" sub-header or calendar date display (e.g. "July to August 2026") — the timestamp/month info will come from the monthly entries themselves in the full dashboard UI once #8/#5 build the snapshot form and store persistence. This component just displays the change figure.
+
+## Closes #13
