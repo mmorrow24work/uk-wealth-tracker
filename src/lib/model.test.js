@@ -71,7 +71,11 @@ describe('document shape matches README.md', () => {
 				'pension_pct'
 			]
 		],
-		['monthly_entries[]', createMonthlyEntry(), ['id', 'month', 'year', 'investments', 'debts']],
+		[
+			'monthly_entries[]',
+			createMonthlyEntry(),
+			['id', 'month', 'year', 'investments', 'debts', 'auto_filled']
+		],
 		[
 			'investments[]',
 			createInvestment(),
@@ -455,6 +459,17 @@ describe('normaliseAppData', () => {
 		const data = normaliseAppData({ assets: [{ name: 'Unidentified' }, { name: 'Also' }] });
 		expect(data.assets[0].id).not.toBe('');
 		expect(data.assets[0].id).not.toBe(data.assets[1].id);
+	});
+
+	it('reads a monthly entry as user-recorded unless it says otherwise', () => {
+		const data = normaliseAppData({
+			monthly_entries: [
+				{ month: 1, year: 2026 },
+				{ month: 2, year: 2026, auto_filled: true },
+				{ month: 3, year: 2026, auto_filled: 'yes please' }
+			]
+		});
+		expect(data.monthly_entries.map((entry) => entry.auto_filled)).toEqual([false, true, false]);
 	});
 
 	it('sorts monthly entries oldest first', () => {

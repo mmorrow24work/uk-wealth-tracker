@@ -1,4 +1,5 @@
 <script>
+	import AutoInvestFill from '../components/AutoInvestFill.svelte';
 	import DebtTracker from '../components/DebtTracker.svelte';
 
 	// Investment holding entry (README.md → "Monthly snapshot entry") is issue #8's monthly
@@ -12,15 +13,20 @@
 	let debts = $state([]);
 	/** @type {import('$lib/types.js').ActivityLogEntry[]} */
 	let activityLog = $state([]);
+	// Monthly snapshots (#8 records them; #15 fills the months between the ones that get recorded).
+	/** @type {import('$lib/types.js').MonthlyEntry[]} */
+	let monthlyEntries = $state([]);
 </script>
 
 <h1>Net Worth</h1>
 <p>Personal UK net worth, tax and retirement planning app. Not financial advice.</p>
 <p>
 	The full net worth dashboard — monthly snapshot entry and tracked/forecast chart — lands in a
-	later build. Debt tracking, the debt-to-investment ratio and the activity log are below.
+	later build. Debt tracking, the debt-to-investment ratio, the auto-invest fill for skipped months
+	and the activity log are below.
 </p>
 
-<div class="mt-6 max-w-2xl">
+<div class="mt-6 flex max-w-2xl flex-col gap-6">
 	<DebtTracker {investments} bind:debts bind:activityLog />
+	<AutoInvestFill bind:monthlyEntries growthRate={5} />
 </div>

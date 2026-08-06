@@ -300,6 +300,7 @@ export function createMonthlyEntry(overrides = {}) {
 		year: MIN_YEAR,
 		investments: [],
 		debts: [],
+		auto_filled: false,
 		...overrides
 	};
 }
@@ -617,7 +618,8 @@ function normaliseMonthlyEntry(raw) {
 		month: asNumber(source.month, 1),
 		year: asNumber(source.year, MIN_YEAR),
 		investments: asArray(source.investments).map(normaliseInvestment),
-		debts: asArray(source.debts).map(normaliseDebt)
+		debts: asArray(source.debts).map(normaliseDebt),
+		auto_filled: asBoolean(source.auto_filled, false)
 	};
 }
 
