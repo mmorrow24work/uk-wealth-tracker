@@ -25,5 +25,8 @@ export * from './milestones.js';
 // age" controls.
 export * from './age-filter.js';
 
+// Contributions vs growth split of a forecast — see the Forecast tab's CompoundingPanel component.
+export * from './compounding.js';
+
 // GitHub Gist persistence — the only place any feature tab should read/write stored data from.
 export * from './gist.js';
