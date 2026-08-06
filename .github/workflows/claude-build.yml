@@ -168,6 +168,77 @@ jobs:
                do not fill them in yourself; a later automated step replaces them with the real numbers
                for this run.
 
+      - name: Detect max-turns failure
+        # If "Run Claude Code" failed, check whether it was specifically
+        # error_max_turns (issue genuinely too large for one session) as
+        # opposed to some other failure (crash, transient infra issue,
+        # etc.) -- only the former should trigger an automatic split.
+        # execution_file is written before the action raises its terminal
+        # error, so it's available even on this failure path (confirmed:
+        # present in the log for a real error_max_turns run).
+        if: steps.pick.outputs.found == 'true' && failure() && steps.claude.conclusion == 'failure'
+        id: maxturns
+        run: |
+          execution_file="${{ steps.claude.outputs.execution_file }}"
+          is_max_turns=false
+          if [ -n "$execution_file" ] && [ -f "$execution_file" ]; then
+            subtype=$(jq -r '.. | .subtype? // empty' "$execution_file" 2>/dev/null | grep -m1 . || echo "")
+            if [ "$subtype" = "error_max_turns" ]; then
+              is_max_turns=true
+            fi
+          fi
+          echo "is_max_turns=$is_max_turns" >> "$GITHUB_OUTPUT"
+
+      - name: Split oversized issue
+        # Don't wait for a second failure on the same issue (previous
+        # policy: split #1 and #12 only after they'd each failed twice).
+        # The very first error_max_turns triggers an immediate split now --
+        # a second full 100-turn attempt at genuinely oversized work is
+        # pure waste. This is a *triage* pass (opus, no Write/Edit tools,
+        # tight turn cap): narrow the failed issue to its smallest
+        # foundational piece and spin the rest out as new issue(s) in the
+        # same milestone, same pattern used by hand for #1->#1+#40+#41 and
+        # #12->#12+#67.
+        if: always() && steps.maxturns.outputs.is_max_turns == 'true'
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          claude_args: "--model claude-opus-5 --max-turns 20 --allowedTools Bash,Read,Grep,Glob,LS"
+          base_branch: main
+          display_report: true
+          prompt: |
+            Issue #${{ steps.pick.outputs.number }} ("${{ steps.pick.outputs.title }}") just hit Claude
+            Code's max-turns limit (100) while being implemented -- it's too large for one session.
+            Split it. Do not implement it and do not open a pull request.
+
+            1. Read the issue (`gh issue view ${{ steps.pick.outputs.number }}`) and skim relevant existing
+               code/docs (CLAUDE.md, README.md, DESIGN.md, src/) to understand its actual scope and what's
+               already built that it can depend on.
+            2. Decide a natural split into 2 (rarely 3) smaller pieces, each independently completable well
+               within 100 turns. Prefer splitting off any "add a new dependency / library integration" piece
+               from the "build the feature using it" piece, or splitting along an obvious data/domain
+               boundary (e.g. two separate entry forms). Match the pattern already used for issue #1 ->
+               #1 + #40 + #41, and issue #12 -> #12 + #67.
+            3. Narrow THIS issue to just the smallest/foundational piece: `gh issue edit
+               ${{ steps.pick.outputs.number }} --title "..." --body "..."`.
+            4. Create new GitHub issue(s) for the rest, in the same milestone this issue is in, e.g.:
+               `gh issue create --milestone "<same milestone>" --label "status:ready" --label "model:sonnet"
+               --title "..." --body "..."` (pick model:haiku/sonnet/opus per the routing table in
+               docs/github.md, not always sonnet). Reference this issue's number in each new issue's body,
+               and reference the new issue number(s) back in this issue's narrowed body.
+            5. Do not add or remove the status:ready / status:in-progress labels on
+               #${{ steps.pick.outputs.number }} yourself -- a later workflow step resets that
+               deterministically regardless of what you do here.
+
+      - name: Reset split issue to ready
+        # Deterministic safety net, independent of whether the split step
+        # above ran cleanly or how it left labels: an issue that just went
+        # through an auto-split must never be left stuck in-progress.
+        if: always() && steps.maxturns.outputs.is_max_turns == 'true'
+        run: |
+          gh issue edit "${{ steps.pick.outputs.number }}" \
+            --remove-label "status:in-progress" --add-label "status:ready" || true
+
       - name: Find PR created for this issue
         # The action's branch_name/session_id outputs are only populated in
         # its own "tag mode" (auto-branch-creation for @claude comment
