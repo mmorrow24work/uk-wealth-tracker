@@ -4,9 +4,24 @@ name: Autonomous Build Pipeline
 # pull_request(closed) trigger chains immediately into the next ready issue
 # as soon as one merges. concurrency below ensures only one run is ever
 # active, so overlapping triggers queue instead of racing.
+#
+# Minute offset (7/22/37/52, not 0/15/30/45): GitHub Actions runs scheduled
+# workflows through the same shared job queue as every other trigger across
+# every repo on the platform -- there's no dedicated capacity for cron, and
+# delays cluster hardest at round-number minutes since that's when the most
+# schedules everywhere fire at once (confirmed here empirically: three
+# consecutive runs failed outright with "job was not acquired by Runner",
+# then the schedule didn't fire at all for 4.5+ hours). GitHub's own docs
+# recommend an off-beat minute for exactly this reason. Not a complete fix
+# -- the underlying queue congestion is shared infrastructure, offsetting
+# just avoids adding to the worst of it -- but it's free and can only help.
+# Interval itself stays at 15 min: this is a pure stall-recovery backstop,
+# so going shorter only adds our own load to the shared queue for no
+# throughput benefit (real cadence is the instant merge-triggered chaining
+# above), and going longer would slow recovery from a genuine stall.
 on:
   schedule:
-    - cron: "*/15 * * * *"
+    - cron: "7,22,37,52 * * * *"
   pull_request:
     types: [closed]
   workflow_dispatch: {}
