@@ -34,6 +34,9 @@ export * from './stress-test.js';
 // FIRE / Coast FIRE maths — see the Retirement tab's FireCalculator component.
 export * from './fire.js';
 
+// UK income tax bands and take-home pay (2026/27) — see the Tax tab's TaxCalculator component.
+export * from './tax.js';
+
 // GitHub Gist persistence — the only place any feature tab should read/write stored data from.
 export * from './gist.js';
 
