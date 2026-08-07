@@ -88,6 +88,10 @@ export * from './retirement-income.js';
 // Property equity + buy-to-let cashflow/yield — see the Property tab's PropertyTracker component.
 export * from './property.js';
 
+// Physical asset gain/loss, CAGR, net position after holding costs and future value projection —
+// see the Assets tab's AssetsTracker/AssetValueProjectionChart components.
+export * from './assets.js';
+
 // Persistence. `persistence.js` is the front door — it owns `loadAppData`/`saveAppData` and which
 // mode the app is in; the two backends are re-exported by name only, since all three modules
 // deliberately share the same load/save function names and `export *` cannot resolve that.
