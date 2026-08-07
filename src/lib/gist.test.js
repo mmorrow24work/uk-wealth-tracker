@@ -78,57 +78,33 @@ afterEach(() => {
 	vi.resetModules();
 });
 
-describe('isGistConfigured / getPersistenceMode', () => {
-	it('is false/local with no token', async () => {
-		const { isGistConfigured, getPersistenceMode } = await import('./gist.js');
+describe('isGistConfigured', () => {
+	it('is false with no token', async () => {
+		const { isGistConfigured } = await import('./gist.js');
 		expect(isGistConfigured()).toBe(false);
-		expect(getPersistenceMode()).toBe('local');
 	});
 
-	it('is true/gist once a token is set, regardless of gist id', async () => {
+	it('is true once a token is set, regardless of gist id', async () => {
 		vi.stubEnv('VITE_GITHUB_TOKEN', 'test-token');
-		const { isGistConfigured, getPersistenceMode } = await import('./gist.js');
+		const { isGistConfigured } = await import('./gist.js');
 		expect(isGistConfigured()).toBe(true);
-		expect(getPersistenceMode()).toBe('gist');
 	});
 });
 
-describe('localStorage fallback (no token configured)', () => {
-	it('loadAppData returns a fresh document when nothing is stored', async () => {
-		const { loadAppData } = await import('./gist.js');
-		const data = await loadAppData();
-		expect(withoutIds(data)).toEqual(withoutIds(createAppData()));
+describe('no token configured', () => {
+	// Storing the document in the browser is `browser-storage.js`'s job now, so this module no
+	// longer has a "no token" mode to fall back into — `persistence.js` simply never routes here.
+	it('loadAppData throws rather than silently reading from somewhere else', async () => {
+		const { GistError, loadAppData } = await import('./gist.js');
+		await expect(loadAppData()).rejects.toThrow(GistError);
 		expect(fetchMock).not.toHaveBeenCalled();
 	});
 
-	it('saveAppData then loadAppData round-trips through localStorage', async () => {
-		const { loadAppData, saveAppData } = await import('./gist.js');
-		const data = createAppData({ profile: createProfile({ name: 'Ada' }) });
-
-		await saveAppData(data);
+	it('saveAppData throws rather than silently writing somewhere else', async () => {
+		const { GistError, saveAppData } = await import('./gist.js');
+		await expect(saveAppData(createAppData())).rejects.toThrow(GistError);
 		expect(fetchMock).not.toHaveBeenCalled();
-		expect(localStorage.getItem('uk-wealth-tracker:data')).toContain('Ada');
-
-		const loaded = await loadAppData();
-		expect(loaded.profile.name).toBe('Ada');
-	});
-
-	it('loadAppData recovers from corrupt localStorage content', async () => {
-		localStorage.setItem('uk-wealth-tracker:data', '{not valid json');
-		const { loadAppData } = await import('./gist.js');
-		const data = await loadAppData();
-		expect(withoutIds(data)).toEqual(withoutIds(createAppData()));
-	});
-
-	it('works when localStorage is entirely unavailable (e.g. during SSR)', async () => {
-		vi.unstubAllGlobals();
-		vi.stubGlobal('fetch', vi.fn());
-		expect(typeof localStorage).toBe('undefined');
-
-		const { loadAppData, saveAppData } = await import('./gist.js');
-		const data = await loadAppData();
-		expect(withoutIds(data)).toEqual(withoutIds(createAppData()));
-		await expect(saveAppData(createAppData())).resolves.toBeUndefined();
+		expect(localStorage.getItem('uk-wealth-tracker:data')).toBeNull();
 	});
 });
 

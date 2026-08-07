@@ -29,9 +29,15 @@ let loadAppDataMock;
 let saveAppDataMock;
 /** @type {typeof import('./gist.js').GistError} */
 let GistError;
+/** @type {typeof import('./browser-storage.js').BrowserStorageError} */
+let BrowserStorageError;
 
-vi.mock('./gist.js', async () => {
-	const actual = /** @type {typeof import('./gist.js')} */ (await vi.importActual('./gist.js'));
+// The store talks to `persistence.js`, not to either backend — which backend is behind it is that
+// module's business, and it has its own tests for the routing.
+vi.mock('./persistence.js', async () => {
+	const actual = /** @type {typeof import('./persistence.js')} */ (
+		await vi.importActual('./persistence.js')
+	);
 	return {
 		...actual,
 		loadAppData: vi.fn(),
@@ -41,14 +47,15 @@ vi.mock('./gist.js', async () => {
 
 beforeEach(async () => {
 	vi.useFakeTimers();
-	const gist = await import('./gist.js');
-	loadAppDataMock = /** @type {import('vitest').Mock} */ (gist.loadAppData);
-	saveAppDataMock = /** @type {import('vitest').Mock} */ (gist.saveAppData);
-	// The same `GistError` class store.js's own `import` sees — obtained through the mocked module
-	// (which re-exports the real one via `...actual`), not a second `vi.importActual` call, since
-	// `vi.resetModules()` between tests would otherwise make that a distinct class and break every
-	// `instanceof` check in `describeError`.
-	GistError = gist.GistError;
+	const persistence = await import('./persistence.js');
+	loadAppDataMock = /** @type {import('vitest').Mock} */ (persistence.loadAppData);
+	saveAppDataMock = /** @type {import('vitest').Mock} */ (persistence.saveAppData);
+	// The same error classes store.js's own `import` sees — obtained through a plain dynamic import
+	// of the (unmocked) backend modules within the same module registry, not `vi.importActual`,
+	// since `vi.resetModules()` between tests would otherwise make those distinct classes and break
+	// every `instanceof` check in `describeError`.
+	({ GistError } = await import('./gist.js'));
+	({ BrowserStorageError } = await import('./browser-storage.js'));
 	loadAppDataMock.mockReset().mockResolvedValue(createAppData());
 	saveAppDataMock.mockReset().mockResolvedValue(undefined);
 });
@@ -203,6 +210,32 @@ describe('debounced sync on change', () => {
 		await vi.advanceTimersByTimeAsync(SYNC_DEBOUNCE_MS_FOR_TESTS);
 		expect(get(syncState).error).toBeNull();
 		expect(saveAppDataMock).toHaveBeenCalledTimes(2);
+	});
+
+	it('surfaces a browser-storage failure with the backend’s own wording', async () => {
+		saveAppDataMock.mockRejectedValueOnce(
+			new BrowserStorageError('Could not save to localStorage: QuotaExceededError')
+		);
+
+		const { appData, hydrateAppData, syncState } = await import('./store.js');
+		await hydrateAppData();
+
+		appData.set(createAppData({ profile: createProfile({ name: 'Too big' }) }));
+		await vi.advanceTimersByTimeAsync(SYNC_DEBOUNCE_MS_FOR_TESTS);
+
+		expect(get(syncState).error).toBe('Could not save to localStorage: QuotaExceededError');
+	});
+
+	it('frames an unexpected failure that is neither backend’s own error type', async () => {
+		saveAppDataMock.mockRejectedValueOnce(new Error('boom'));
+
+		const { appData, hydrateAppData, syncState } = await import('./store.js');
+		await hydrateAppData();
+
+		appData.set(createAppData({ profile: createProfile({ name: 'Odd' }) }));
+		await vi.advanceTimersByTimeAsync(SYNC_DEBOUNCE_MS_FOR_TESTS);
+
+		expect(get(syncState).error).toBe('Could not save: boom');
 	});
 });
 

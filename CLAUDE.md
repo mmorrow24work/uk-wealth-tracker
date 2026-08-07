@@ -37,7 +37,9 @@ src/
 ├── routes/            # one directory per tab: forecast, retirement, tax, pensions,
 │                       # dividends, property, assets, budget, estate
 ├── lib/
-│   ├── gist.js         # GitHub Gist read/write — the only persistence layer
+│   ├── persistence.js  # one load/save API over both storage modes — the only one store.js calls
+│   ├── browser-storage.js # browser-only persistence (IndexedDB, localStorage fallback)
+│   ├── gist.js         # GitHub Gist read/write
 │   ├── tax.js          # UK income tax calculations
 │   ├── fire.js         # FIRE / retirement maths
 │   ├── monte-carlo.js  # Monte Carlo retirement simulator (Phase 2)
@@ -45,7 +47,7 @@ src/
 └── components/         # NetWorthChart.svelte, ForecastChart.svelte, etc.
 ```
 
-Key architectural point: **all persisted data lives in one JSON blob**, either in the browser (default, no setup) or additionally synced to a private GitHub Gist (opt-in, cross-device), read/written through `lib/gist.js`. There is no backend and no database — every feature tab reads/writes against the same in-memory store (`lib/store.js`). "Private" Gist means GitHub's *secret* (unlisted) visibility, not access control — anyone with the raw URL or Gist id can read it; see DESIGN.md for why this matters for the sign-in / delete-my-data work. When adding a new feature area, extend the shared data model rather than introducing separate storage.
+Key architectural point: **all persisted data lives in one JSON blob**, either in the browser (default, no setup) or additionally synced to a private GitHub Gist (opt-in, cross-device), read/written through `lib/persistence.js`, which routes to `lib/browser-storage.js` (IndexedDB + `localStorage` fallback) or `lib/gist.js` depending on the active mode. There is no backend and no database — every feature tab reads/writes against the same in-memory store (`lib/store.js`). "Private" Gist means GitHub's *secret* (unlisted) visibility, not access control — anyone with the raw URL or Gist id can read it; see DESIGN.md for why this matters for the sign-in / delete-my-data work. When adding a new feature area, extend the shared data model rather than introducing separate storage.
 
 ## Data model
 

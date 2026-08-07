@@ -75,9 +75,13 @@ export * from './dividend-tax.js';
 // Property equity + buy-to-let cashflow/yield — see the Property tab's PropertyTracker component.
 export * from './property.js';
 
-// GitHub Gist persistence — the only place any feature tab should read/write stored data from.
-export * from './gist.js';
+// Persistence. `persistence.js` is the front door — it owns `loadAppData`/`saveAppData` and which
+// mode the app is in; the two backends are re-exported by name only, since all three modules
+// deliberately share the same load/save function names and `export *` cannot resolve that.
+export * from './persistence.js';
+export { BrowserStorageError, browserStorageBackend, hasLocalStorage } from './browser-storage.js';
+export { GistError, isGistConfigured } from './gist.js';
 
 // Global reactive app state — the shared store every feature tab should read/write against
-// instead of local component state. Hydrates from and syncs (debounced) to gist.js.
+// instead of local component state. Hydrates from and syncs (debounced) to persistence.js.
 export * from './store.js';
