@@ -38,6 +38,7 @@
 		"vitest": "^4.1.10"
 	},
 	"dependencies": {
+		"layerchart": "^2.1.0",
 		"shadcn-svelte": "^1.5.0"
 	}
 }

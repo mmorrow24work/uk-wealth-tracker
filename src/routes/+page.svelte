@@ -5,6 +5,7 @@
 	import AutoInvestFill from '../components/AutoInvestFill.svelte';
 	import DebtTracker from '../components/DebtTracker.svelte';
 	import InvestmentHoldings from '../components/InvestmentHoldings.svelte';
+	import NetWorthChart from '../components/NetWorthChart.svelte';
 	import { appData, getPersistenceMode, hydrateAppData, syncState } from '$lib/index.js';
 
 	// `activityLog` and `monthlyEntries` map onto `AppData.activity_log`/`.monthly_entries` directly,
@@ -45,9 +46,10 @@
 <h1>Net Worth</h1>
 <p>Personal UK net worth, tax and retirement planning app. Not financial advice.</p>
 <p>
-	The full net worth dashboard — tracked/forecast chart — lands in a later build. Monthly snapshot
-	entry for investment holdings, debt tracking, the debt-to-investment ratio, the auto-invest fill
-	for skipped months and the activity log are below.
+	Your recorded net worth history is charted below. The three forecast lines and their confidence
+	band, and the chart's hover/marker layer, land in later builds. Monthly snapshot entry for
+	investment holdings, debt tracking, the debt-to-investment ratio, the auto-invest fill for skipped
+	months and the activity log are below it.
 </p>
 <p class="text-sm text-muted-foreground">
 	{getPersistenceMode() === 'gist' ? 'Synced to your GitHub Gist' : 'Saved to this browser only'}.
@@ -56,6 +58,7 @@
 </p>
 
 <div class="mt-6 flex max-w-2xl flex-col gap-6">
+	<NetWorthChart {monthlyEntries} />
 	<InvestmentHoldings bind:monthlyEntries bind:activityLog />
 	<DebtTracker bind:monthlyEntries bind:activityLog />
 	<AutoInvestFill bind:monthlyEntries growthRate={5} />

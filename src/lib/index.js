@@ -14,6 +14,10 @@ export * from './activity-log.js';
 // Auto-invest fill — compound-growth snapshots for months the user skipped.
 export * from './auto-invest.js';
 
+// Tracked net worth history series + chart scales — see the Net Worth dashboard's NetWorthChart
+// component.
+export * from './net-worth.js';
+
 // Three-scenario net worth projections — see the Forecast tab's ForecastProjections component.
 export * from './forecast.js';
 
