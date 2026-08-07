@@ -75,6 +75,10 @@ export * from './dividend-tax.js';
 // Property equity + buy-to-let cashflow/yield — see the Property tab's PropertyTracker component.
 export * from './property.js';
 
+// Physical asset gain/loss, CAGR, net position and future value projection — see the Assets tab's
+// AssetTracker component.
+export * from './assets.js';
+
 // GitHub Gist persistence — the only place any feature tab should read/write stored data from.
 export * from './gist.js';
 
