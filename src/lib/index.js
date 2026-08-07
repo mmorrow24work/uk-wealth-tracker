@@ -37,6 +37,10 @@ export * from './fire.js';
 // UK income tax bands and take-home pay (2026/27) — see the Tax tab's TaxCalculator component.
 export * from './tax.js';
 
+// Child Benefit and the High Income Child Benefit Charge (2026/27) — see the Tax tab's
+// ChildBenefitCharge component.
+export * from './hicbc.js';
+
 // GitHub Gist persistence — the only place any feature tab should read/write stored data from.
 export * from './gist.js';
 
