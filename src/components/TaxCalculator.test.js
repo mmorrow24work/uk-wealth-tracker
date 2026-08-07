@@ -115,12 +115,14 @@ describe('TaxCalculator', () => {
 		expect(body).toContain('not financial advice');
 	});
 
-	it('renders the Child Benefit and Marriage Allowance cards beneath the band table', () => {
+	it('renders the Child Benefit, Marriage Allowance and Student Loan cards beneath the band table', () => {
 		const body = text();
 
 		expect(body).toContain('Child Benefit');
 		expect(body).toContain('High Income Child Benefit Charge');
 		expect(body).toContain('Marriage Allowance');
 		expect(body).toContain('Only available to spouses and civil partners');
+		expect(body).toContain('Student Loan repayments');
+		expect(body).toContain('No Student Loan selected, so nothing is repaid here');
 	});
 });

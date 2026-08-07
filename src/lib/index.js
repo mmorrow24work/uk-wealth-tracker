@@ -45,6 +45,10 @@ export * from './hicbc.js';
 // component.
 export * from './marriage-allowance.js';
 
+// Student Loan repayments, plans 1/2/4/5/PG (2026/27) — see the Tax tab's StudentLoanRepayment
+// component.
+export * from './student-loan.js';
+
 // GitHub Gist persistence — the only place any feature tab should read/write stored data from.
 export * from './gist.js';
 
