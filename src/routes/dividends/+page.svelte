@@ -3,6 +3,7 @@
 	import { get } from 'svelte/store';
 
 	import DividendIncomePlanner from '../../components/DividendIncomePlanner.svelte';
+	import DividendTaxSummary from '../../components/DividendTaxSummary.svelte';
 	import DividendTracker from '../../components/DividendTracker.svelte';
 	import {
 		appData,
@@ -41,9 +42,9 @@
 
 <h1>Dividends</h1>
 <p>
-	The dividend income planner — per-holding value, yield and strategy, plus a building-phase
-	(reinvest) vs income-phase (age slider) projection. The £500/yr dividend allowance and GIA tax
-	rates land in a later build (#35).
+	The dividend income planner — per-holding value, yield and strategy, what the £500/yr dividend
+	allowance and the GIA dividend rates leave you with after tax, plus a building-phase (reinvest) vs
+	income-phase (age slider) projection.
 </p>
 <p class="text-sm text-muted-foreground">
 	{getPersistenceMode() === 'gist' ? 'Synced to your GitHub Gist' : 'Saved to this browser only'}.
@@ -54,6 +55,7 @@
 <div class="mt-6 max-w-2xl flex flex-col gap-6">
 	{#if ready}
 		<DividendTracker bind:dividends />
+		<DividendTaxSummary {dividends} {profile} />
 		<DividendIncomePlanner {dividends} {profile} />
 	{:else}
 		<p class="text-sm text-muted-foreground">Loading your saved data…</p>

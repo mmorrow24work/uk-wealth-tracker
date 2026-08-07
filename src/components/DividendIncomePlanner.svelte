@@ -21,6 +21,7 @@
 	 * sampled tables rather than plotted on a chart — consistent with how every other forecast-style
 	 * panel in this app (`CompoundingPanel`, `StressTestPanel`) renders its own series today.
 	 */
+	import { DIVIDEND_TAX_YEAR } from '$lib/dividend-tax.js';
 	import { dividendIncomePlan, dividendPortfolioSummary } from '$lib/dividends.js';
 	import { currentCalendarMonth } from '$lib/forecast.js';
 	import { ageAtPoint } from '$lib/milestones.js';
@@ -299,10 +300,11 @@
 		{/if}
 
 		<p class="text-xs text-muted-foreground mt-2">
-			Illustrative only, not financial advice. Every figure is gross of tax — the £500/yr dividend
-			allowance and GIA tax rates land in a later build (#35). Capital growth is not modelled: a
-			holding's value only moves from its own yield (reinvested or not) and its contribution
-			schedule, never from an assumed price return.
+			Illustrative only, not financial advice. Every figure here is gross of tax: the card above
+			applies the {DIVIDEND_TAX_YEAR} dividend allowance and GIA rates to today's portfolio, and the projection
+			deliberately stays gross, since neither the allowance nor the rates can be assumed to hold for the
+			decades this covers. Capital growth is not modelled either: a holding's value only moves from its
+			own yield (reinvested or not) and its contribution schedule, never from an assumed price return.
 		</p>
 	{/if}
 </Card>
