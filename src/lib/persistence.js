@@ -7,13 +7,15 @@
  *   network, no setup. The default, and on a build with no `VITE_GITHUB_TOKEN` compiled in, the
  *   only mode there is.
  * - **`gist`** — `./gist.js`: a JSON file in a private GitHub Gist, for cross-device access.
- *   Available only when a token *is* compiled in — configuring that token is itself the opt-in, so
- *   a build that has one starts in Gist mode.
+ *   Available only once the app has a GitHub token: since #62 that normally means the user signed
+ *   in from the connect page (`./github-auth.js`), and signing in is itself the opt-in, so it
+ *   switches this browser to Gist mode. A token compiled in as `VITE_GITHUB_TOKEN` also counts, and
+ *   a build carrying one starts in Gist mode as it always did.
  *
- * The user's choice (which #100's Settings UI sets) is remembered in `localStorage` and wins over
- * that default whenever it names a mode this build can actually use — so a token-carrying build
- * can be put back into browser-only mode, while a remembered `gist` on a build that no longer has
- * a token silently falls back to `browser` rather than failing every save.
+ * The user's choice (set by the connect page, and by #100's Settings UI) is remembered in
+ * `localStorage` and wins over that default whenever it names a mode this build can actually use —
+ * so a signed-in browser can be put back into browser-only mode, while a remembered `gist` after
+ * signing out silently falls back to `browser` rather than failing every save.
  *
  * `./store.js` talks to this module and never to a backend directly; the backends know nothing
  * about each other or about modes.
@@ -76,8 +78,8 @@ export function isPersistenceModeAvailable(mode) {
 }
 
 /**
- * The mode used when the user has never chosen one: Gist sync on a build that carries a token
- * (configuring the token is the opt-in), browser-only otherwise.
+ * The mode used when the user has never chosen one: Gist sync whenever the app has a GitHub token
+ * (signing in, or configuring one at build time, is the opt-in), browser-only otherwise.
  *
  * @returns {PersistenceMode}
  */
@@ -121,7 +123,7 @@ export function getPersistenceMode() {
  * @param {PersistenceMode} mode
  * @returns {PersistenceMode} The mode now in effect.
  * @throws {RangeError} If the mode doesn't exist, or this build can't use it (asking for `gist`
- *   with no `VITE_GITHUB_TOKEN` compiled in) — the UI should only offer
+ *   while signed out of GitHub, on a build with no `VITE_GITHUB_TOKEN`) — the UI should only offer
  *   {@link availablePersistenceModes}.
  */
 export function setPersistenceMode(mode) {
@@ -130,7 +132,7 @@ export function setPersistenceMode(mode) {
 	}
 	if (!isPersistenceModeAvailable(mode)) {
 		throw new RangeError(
-			`Persistence mode "${mode}" is not available in this build (no VITE_GITHUB_TOKEN configured)`
+			`Persistence mode "${mode}" is not available yet (sign in with GitHub to use Gist sync)`
 		);
 	}
 	if (hasLocalStorage()) {

@@ -1,11 +1,26 @@
 <script>
+	import { onMount } from 'svelte';
+
 	import favicon from '$lib/assets/favicon.svg';
 	import { page } from '$app/state';
 	import { resolve } from '$app/paths';
+	import { githubConnection, refreshGitHubConnection } from '$lib/github-auth.js';
 	import { NAV_TABS, isActiveTab } from '$lib/nav.js';
 	import '../app.css';
 
 	let { children } = $props();
+
+	// Issue #62 asks for the connected GitHub account to be obvious, not buried on one screen — so the
+	// shell carries it on every tab. `githubConnection` starts signed-out because storage cannot be
+	// read while prerendering; this is the one read that turns it into the truth for this browser.
+	onMount(refreshGitHubConnection);
+
+	const connectionLabel = $derived.by(() => {
+		const { signedIn, account, source } = $githubConnection;
+		if (signedIn) return account ? `@${account.login}` : 'GitHub connected';
+		if (source === 'build') return 'GitHub: build token';
+		return 'Connect GitHub';
+	});
 </script>
 
 <svelte:head>
@@ -34,6 +49,14 @@
 				{/each}
 			</ul>
 		</nav>
+		<a
+			href={resolve('/connect')}
+			aria-current={isActiveTab(page.url.pathname, '/connect') ? 'page' : undefined}
+			class="ml-auto inline-block px-3 py-1.5 rounded text-sm no-underline border border-gray-200 text-gray-900 hover:bg-gray-100"
+			title="GitHub sign-in for Gist sync — where your data is stored"
+		>
+			{connectionLabel}
+		</a>
 	</header>
 
 	<main class="flex-1 px-4 py-6">

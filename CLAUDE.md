@@ -17,7 +17,7 @@ Repo: `mmorrow24work/uk-wealth-tracker` (fork of `mmorrow2012/uk-wealth-tracker`
 - **Framework:** SvelteKit — chosen deliberately over React for token/verbosity reasons (see "Build philosophy" below), not for technical superiority.
 - **UI:** shadcn-svelte + Tailwind CSS
 - **Charts:** Recharts or Chart.js — undecided, resolve in the scaffold conversation if not already settled
-- **Persistence:** Browser-only by default (IndexedDB/localStorage, no setup); optional GitHub Gist (JSON) sync via a GitHub token — `VITE_GITHUB_TOKEN` and `VITE_GIST_ID` in `.env.local`. Gist mode only, not browser-only mode, needs GitHub sign-in (Milestone 7).
+- **Persistence:** Browser-only by default (IndexedDB/localStorage, no setup); optional GitHub Gist (JSON) sync, authenticated by signing in on the app's `/connect` page (token kept in the browser). `VITE_GITHUB_TOKEN`/`VITE_GIST_ID` in `.env.local` still work as a build-time fallback. Gist mode only, not browser-only mode, needs GitHub sign-in.
 - **Hosting:** GitHub Pages, deployed via GitHub Actions
 
 ## Build philosophy — read before making framework/architecture choices
@@ -39,7 +39,8 @@ src/
 ├── lib/
 │   ├── persistence.js  # one load/save API over both storage modes — the only one store.js calls
 │   ├── browser-storage.js # browser-only persistence (IndexedDB, localStorage fallback)
-│   ├── gist.js         # GitHub Gist read/write
+│   ├── gist.js         # GitHub Gist read/write (+ which Gist, + connect/disconnect)
+│   ├── github-auth.js  # GitHub sign-in: the token and the account it belongs to
 │   ├── tax.js          # UK income tax calculations
 │   ├── fire.js         # FIRE / retirement maths
 │   ├── monte-carlo.js  # Monte Carlo retirement simulator (Phase 2)
@@ -47,7 +48,7 @@ src/
 └── components/         # NetWorthChart.svelte, ForecastChart.svelte, etc.
 ```
 
-Key architectural point: **all persisted data lives in one JSON blob**, either in the browser (default, no setup) or additionally synced to a private GitHub Gist (opt-in, cross-device), read/written through `lib/persistence.js`, which routes to `lib/browser-storage.js` (IndexedDB + `localStorage` fallback) or `lib/gist.js` depending on the active mode. There is no backend and no database — every feature tab reads/writes against the same in-memory store (`lib/store.js`). "Private" Gist means GitHub's *secret* (unlisted) visibility, not access control — anyone with the raw URL or Gist id can read it; see DESIGN.md for why this matters for the sign-in / delete-my-data work. When adding a new feature area, extend the shared data model rather than introducing separate storage.
+Key architectural point: **all persisted data lives in one JSON blob**, either in the browser (default, no setup) or additionally synced to a private GitHub Gist (opt-in, cross-device), read/written through `lib/persistence.js`, which routes to `lib/browser-storage.js` (IndexedDB + `localStorage` fallback) or `lib/gist.js` depending on the active mode. There is no backend and no database — every feature tab reads/writes against the same in-memory store (`lib/store.js`). Gist mode's credential comes from `lib/github-auth.js` (in-app sign-in, token in `localStorage`; `VITE_GITHUB_TOKEN` is only a fallback) — `gist.js` imports it, never the other way round. "Private" Gist means GitHub's *secret* (unlisted) visibility, not access control — anyone with the raw URL or Gist id can read it; see DESIGN.md for why this matters for the sign-in / delete-my-data work. When adding a new feature area, extend the shared data model rather than introducing separate storage.
 
 ## Data model
 

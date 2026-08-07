@@ -88,6 +88,12 @@ describe('availablePersistenceModes', () => {
 		expect(availablePersistenceModes()).toEqual(['gist', 'browser']);
 	});
 
+	it('offers both modes once someone has signed in, on a build with no token (#62)', async () => {
+		localStorage.setItem('uk-wealth-tracker:github-token', 'signed-in-token');
+		const { availablePersistenceModes } = await import('./persistence.js');
+		expect(availablePersistenceModes()).toEqual(['gist', 'browser']);
+	});
+
 	it('reports which individual modes are available', async () => {
 		const { isPersistenceModeAvailable } = await import('./persistence.js');
 		expect(isPersistenceModeAvailable('browser')).toBe(true);
@@ -108,6 +114,26 @@ describe('getPersistenceMode', () => {
 		const { defaultPersistenceMode, getPersistenceMode } = await import('./persistence.js');
 		expect(defaultPersistenceMode()).toBe('gist');
 		expect(getPersistenceMode()).toBe('gist');
+	});
+
+	it('starts in gist mode once someone has signed in (#62)', async () => {
+		localStorage.setItem('uk-wealth-tracker:github-token', 'signed-in-token');
+		const { defaultPersistenceMode, getPersistenceMode } = await import('./persistence.js');
+		expect(defaultPersistenceMode()).toBe('gist');
+		expect(getPersistenceMode()).toBe('gist');
+	});
+
+	it('falls back to browser-only when the signed-in token goes away again (#62)', async () => {
+		localStorage.setItem('uk-wealth-tracker:github-token', 'signed-in-token');
+		const { getPersistenceMode, setPersistenceMode } = await import('./persistence.js');
+		setPersistenceMode('gist');
+		expect(getPersistenceMode()).toBe('gist');
+
+		// Signing out: the remembered "gist" is still in storage, but there is no token to honour it
+		// with, so the app quietly resolves back to browser-only rather than failing every save.
+		localStorage.removeItem('uk-wealth-tracker:github-token');
+		expect(localStorage.getItem(MODE_KEY)).toBe('gist');
+		expect(getPersistenceMode()).toBe('browser');
 	});
 
 	it('honours a remembered browser-only choice over the token default', async () => {

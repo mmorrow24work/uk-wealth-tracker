@@ -228,11 +228,13 @@ uk-wealth-tracker/
 │   │   ├── property/
 │   │   ├── assets/
 │   │   ├── budget/
-│   │   └── estate/
+│   │   ├── estate/
+│   │   └── connect/              # GitHub sign-in for Gist mode (not a feature tab)
 │   ├── lib/
 │   │   ├── persistence.js        # one load/save API over both storage modes
 │   │   ├── browser-storage.js    # browser-only persistence (IndexedDB + localStorage)
 │   │   ├── gist.js               # GitHub Gist persistence
+│   │   ├── github-auth.js        # GitHub sign-in: the token + the account it belongs to
 │   │   ├── tax.js                # UK tax calculations
 │   │   ├── fire.js               # FIRE / retirement maths
 │   │   ├── monte-carlo.js        # Monte Carlo simulator
@@ -268,48 +270,42 @@ The app supports two persistence modes:
 1. **Browser-only (default).** Data is stored in the browser itself (IndexedDB, with `localStorage` as fallback). No account, no token, no setup — works immediately, entirely offline. Data stays on the one device unless you export it. Modelled on [SquirrelPlan](https://squirrelplan.app/)'s approach; see GitHub Milestone 7 ("Data Portability & Access") for status.
 2. **GitHub Gist sync (opt-in).** For access from more than one device, the same data is also written to a single JSON file in a private ("secret") GitHub Gist.
 
-   **What "a JSON blob in a private Gist" means:** the entire dataset — profile, monthly entries, pensions, properties, assets, dividends, milestones, budget — is one JSON object stored as a single file's content in a Gist. There's no database: every save overwrites that file wholesale, every load re-fetches and re-parses it. "Private" means GitHub's **secret** gist visibility — unlisted and unindexed, but **not access-controlled**: anyone with the raw file URL or the Gist's id can read it without authenticating. Treat the id itself as a secret, not as a real access boundary. (See Milestone 7 for a proper GitHub sign-in flow and a "delete all my data" action for this mode.)
+   **What "a JSON blob in a private Gist" means:** the entire dataset — profile, monthly entries, pensions, properties, assets, dividends, milestones, budget — is one JSON object stored as a single file's content in a Gist. There's no database: every save overwrites that file wholesale, every load re-fetches and re-parses it. "Private" means GitHub's **secret** gist visibility — unlisted and unindexed, but **not access-controlled**: anyone with the raw file URL or the Gist's id can read it without authenticating. Treat the id itself as a secret, not as a real access boundary. Signing in (below) identifies *which* Gist is yours to read and write; it does not make that Gist's contents any better protected than its id staying secret. (See Milestone 7 for the "delete all my data" action for this mode.)
 
 Both modes speak the same JSON shape, so **Export data as JSON** / **Import data from JSON** works as a manual bridge between them, and as a backup mechanism either way.
 
-**Which mode you get.** A build with no `VITE_GITHUB_TOKEN` compiled in has only browser-only storage — that's the zero-setup default, and nothing ever reaches the network. On a build that *does* carry a token, configuring that token is itself the opt-in, so it starts in Gist sync mode. Either way the choice is remembered per browser and wins over that default whenever the build can honour it: a token-carrying build can be put back into browser-only mode, and a remembered "Gist" choice on a build that no longer has a token quietly falls back to browser-only rather than failing every save. `src/lib/persistence.js` is the single load/save API over both backends — `src/lib/store.js` calls it and never a backend directly. The Settings UI for switching modes is tracked separately (issue #100).
+**Which mode you get.** Browser-only until the app has a GitHub token, and Gist sync once it does. Signing in on the **Connect GitHub** page (reached from the connection indicator in the header) is what normally provides that token, and signing in is itself the opt-in, so it switches this browser to Gist sync; signing out puts it back. A `VITE_GITHUB_TOKEN` compiled into the build also counts, and a build carrying one starts in Gist sync mode. Either way the choice is remembered per browser and wins over that default whenever it can be honoured: a signed-in browser can be put back into browser-only mode, and a remembered "Gist" choice with no token to honour it quietly falls back to browser-only rather than failing every save. `src/lib/persistence.js` is the single load/save API over both backends — `src/lib/store.js` calls it and never a backend directly. The Settings UI for switching modes explicitly is tracked separately (issue #100).
 
-### Environment Setup (Gist sync mode only)
+### Connecting GitHub (Gist sync mode only)
 
-Gist sync is configured via environment variables in a `.env.local` file. Two variables are available:
+Sign in from inside the app — no environment files, no rebuild, no redeploy:
 
-- **`VITE_GITHUB_TOKEN`** — A GitHub personal access token with the `gist` scope. Without this, browser-only storage is the only mode the app has; with it, the app starts in Gist sync mode.
-- **`VITE_GIST_ID`** — (Optional) An existing private Gist's id where data will be stored. If a token is set but this is left blank, the app creates a new private Gist on first save and caches its id in `localStorage`.
-
-**To enable Gist persistence:**
-
-1. Copy `.env.example` to `.env.local`:
-   ```bash
-   cp .env.example .env.local
-   ```
-
-2. Create a GitHub personal access token:
-   - Visit https://github.com/settings/tokens
-   - Click "Generate new token (classic)"
-   - Give it a name (e.g. `uk-wealth-tracker`)
-   - Select the `gist` scope
+1. Click the connection indicator in the header (it reads **Connect GitHub** when nobody is signed in).
+2. Create a personal access token with the `gist` scope:
+   - Visit https://github.com/settings/tokens/new?scopes=gist&description=uk-wealth-tracker (the scope is pre-ticked; the page is also linked from the app)
    - Copy the token
+   - `gist` on its own is enough — it reaches nothing else in your account
+3. Paste it into **GitHub personal access token** and click **Connect GitHub**. The token is checked against the GitHub API before anything is stored, so a mistyped or expired one fails there and then rather than silently on your next save.
+4. That's it — the header now shows the connected account, and this browser is in Gist sync mode. Your first save creates a private Gist for you.
 
-3. Paste the token into `.env.local` as `VITE_GITHUB_TOKEN`:
-   ```env
-   VITE_GITHUB_TOKEN=ghp_your_token_here
-   ```
+**Using a Gist you already have** (this is how a second device joins the same data): paste its id, or its whole URL, into **Which Gist** on the same page and click **Use this Gist**.
 
-4. Optionally, create a private Gist to use as storage (or leave `VITE_GIST_ID` blank and let the app create one):
-   - Visit https://gist.github.com/
-   - Click "New Gist" and create a private, empty Gist
-   - Copy its id from the URL (format: a 32-character hexadecimal string)
-   - Add it to `.env.local`:
-   ```env
-   VITE_GIST_ID=your_gist_id_here
-   ```
+**Signing out** forgets the token and the account in this browser and returns it to browser-only storage. Nothing is deleted — not the Gist, not this browser's copy — and the token stays valid until you revoke it at https://github.com/settings/tokens. (A "delete all my data" action for Gist mode is issue #63.)
 
-5. Restart the dev server (`npm run dev`). On first save, the app will sync data to the Gist.
+**Where the token lives.** In this browser's own storage, sent to nowhere but `api.github.com`, never written to the console, never included in an error message, and never stored inside the Gist itself. It is readable by any script running on this app's origin — which is true of any token a backend-less app can hold — so the protection that matters is the token's narrow `gist` scope and your ability to revoke it.
+
+> **Why a pasted token rather than "Sign in with GitHub"?** GitHub's OAuth device-flow endpoints send no CORS headers, so a browser cannot complete that exchange without a server to proxy it, and this app is a static GitHub Pages build with no backend by design.
+
+#### Build-time configuration (still supported)
+
+Deployments configured before in-app sign-in existed keep working. `.env.local` can still carry:
+
+- **`VITE_GITHUB_TOKEN`** — a token with the `gist` scope, used when nobody has signed in on this browser. Note that `VITE_`-prefixed variables are inlined into the client bundle, so anyone who can read the deployed JavaScript can read this token — which is exactly what signing in avoids.
+- **`VITE_GIST_ID`** — (optional) an existing private Gist's id. A Gist chosen or created in the app wins over this one.
+
+```bash
+cp .env.example .env.local   # then fill it in and restart `npm run dev`
+```
 
 **Important:** `.env.local` is in `.gitignore` and will not be committed. Keep your token safe and never paste it into version control.
 

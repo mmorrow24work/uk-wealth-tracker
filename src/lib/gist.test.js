@@ -78,6 +78,27 @@ afterEach(() => {
 	vi.resetModules();
 });
 
+/**
+ * A `GET /user` response, for the sign-in half — `github-auth.js` verifies a token against this
+ * before `connectGitHubAccount` stores anything. Its own tests cover the verification itself; here
+ * it is only ever the happy path, so that what these tests assert is the *Gist* side of connecting.
+ *
+ * @param {string} login
+ */
+function verifiedUser(login) {
+	return {
+		ok: true,
+		status: 200,
+		headers: new Headers({ 'x-oauth-scopes': 'gist' }),
+		json: async () => ({ login, id: 1, name: null })
+	};
+}
+
+const TOKEN_KEY = 'uk-wealth-tracker:github-token';
+const ACCOUNT_KEY = 'uk-wealth-tracker:github-account';
+const GIST_ID_KEY = 'uk-wealth-tracker:gist-id';
+const OWNER_KEY = 'uk-wealth-tracker:gist-owner';
+
 describe('isGistConfigured', () => {
 	it('is false with no token', async () => {
 		const { isGistConfigured } = await import('./gist.js');
@@ -86,6 +107,12 @@ describe('isGistConfigured', () => {
 
 	it('is true once a token is set, regardless of gist id', async () => {
 		vi.stubEnv('VITE_GITHUB_TOKEN', 'test-token');
+		const { isGistConfigured } = await import('./gist.js');
+		expect(isGistConfigured()).toBe(true);
+	});
+
+	it('is true once someone has signed in, on a build with no token of its own', async () => {
+		localStorage.setItem(TOKEN_KEY, 'signed-in-token');
 		const { isGistConfigured } = await import('./gist.js');
 		expect(isGistConfigured()).toBe(true);
 	});
@@ -283,5 +310,252 @@ describe('Gist writes (token configured)', () => {
 		const { GistError, saveAppData } = await import('./gist.js');
 		await expect(saveAppData(createAppData())).rejects.toThrow(GistError);
 		expect(localStorage.getItem('uk-wealth-tracker:gist-id')).toBeNull();
+	});
+});
+
+describe('authenticating with the signed-in token', () => {
+	it('uses the token pasted into this browser, with no build token anywhere', async () => {
+		localStorage.setItem(TOKEN_KEY, 'signed-in-token');
+		localStorage.setItem(GIST_ID_KEY, 'gist-mine');
+		fetchMock.mockResolvedValueOnce(jsonResponse({ files: {} }));
+
+		const { loadAppData } = await import('./gist.js');
+		await loadAppData();
+
+		expect(fetchMock).toHaveBeenCalledWith(
+			'https://api.github.com/gists/gist-mine',
+			expect.objectContaining({
+				headers: expect.objectContaining({ Authorization: 'Bearer signed-in-token' })
+			})
+		);
+	});
+
+	it('prefers the signed-in token over one compiled into the build', async () => {
+		vi.stubEnv('VITE_GITHUB_TOKEN', 'build-token');
+		vi.stubEnv('VITE_GIST_ID', 'gist-123');
+		localStorage.setItem(TOKEN_KEY, 'signed-in-token');
+		fetchMock.mockResolvedValueOnce(jsonResponse({ files: {} }));
+
+		const { loadAppData } = await import('./gist.js');
+		await loadAppData();
+
+		const [, options] = fetchMock.mock.calls[0];
+		expect(options.headers.Authorization).toBe('Bearer signed-in-token');
+	});
+});
+
+describe('which gist is connected', () => {
+	it('is nothing at all before one is chosen or created', async () => {
+		const { describeGistTarget } = await import('./gist.js');
+		expect(describeGistTarget()).toEqual({ id: undefined, url: undefined, source: 'none' });
+	});
+
+	it('reports the build gist when only VITE_GIST_ID is set', async () => {
+		vi.stubEnv('VITE_GIST_ID', 'gist-123');
+		const { describeGistTarget } = await import('./gist.js');
+		expect(describeGistTarget()).toEqual({
+			id: 'gist-123',
+			url: 'https://gist.github.com/gist-123',
+			source: 'build'
+		});
+	});
+
+	it('lets a gist chosen in the app win over the build one', async () => {
+		vi.stubEnv('VITE_GITHUB_TOKEN', 'test-token');
+		vi.stubEnv('VITE_GIST_ID', 'gist-from-build');
+		fetchMock.mockResolvedValueOnce(jsonResponse({ files: {} }));
+
+		const { describeGistTarget, loadAppData, setActiveGistId } = await import('./gist.js');
+		setActiveGistId('gistchosen');
+
+		expect(describeGistTarget().source).toBe('browser');
+		await loadAppData();
+		expect(fetchMock).toHaveBeenCalledWith(
+			'https://api.github.com/gists/gistchosen',
+			expect.anything()
+		);
+	});
+
+	it('falls back to the build gist once the chosen one is forgotten', async () => {
+		vi.stubEnv('VITE_GIST_ID', 'gist-from-build');
+		const { clearActiveGistId, describeGistTarget, setActiveGistId } = await import('./gist.js');
+
+		setActiveGistId('gistchosen');
+		clearActiveGistId();
+
+		expect(describeGistTarget()).toMatchObject({ id: 'gist-from-build', source: 'build' });
+	});
+
+	it('starts a fresh gist on the next save once the chosen one is forgotten and there is no build one', async () => {
+		vi.stubEnv('VITE_GITHUB_TOKEN', 'test-token');
+		fetchMock.mockResolvedValueOnce(jsonResponse({ id: 'gist-new' }, { status: 201 }));
+
+		const { clearActiveGistId, saveAppData, setActiveGistId } = await import('./gist.js');
+		setActiveGistId('gistchosen');
+		clearActiveGistId();
+		await saveAppData(createAppData());
+
+		expect(fetchMock).toHaveBeenCalledWith(
+			'https://api.github.com/gists',
+			expect.objectContaining({ method: 'POST' })
+		);
+		expect(localStorage.getItem(GIST_ID_KEY)).toBe('gist-new');
+	});
+});
+
+describe('normaliseGistId', () => {
+	it('accepts a bare id', async () => {
+		const { normaliseGistId } = await import('./gist.js');
+		expect(normaliseGistId('  aa11bb22cc33  ')).toBe('aa11bb22cc33');
+	});
+
+	it('accepts a gist URL, which is what people actually have to hand', async () => {
+		const { normaliseGistId } = await import('./gist.js');
+		expect(normaliseGistId('https://gist.github.com/octocat/aa11bb22cc33')).toBe('aa11bb22cc33');
+		expect(normaliseGistId('https://gist.github.com/octocat/aa11bb22cc33/')).toBe('aa11bb22cc33');
+		expect(normaliseGistId('https://gist.github.com/octocat/aa11bb22cc33#file-x')).toBe(
+			'aa11bb22cc33'
+		);
+	});
+
+	it('rejects an empty entry and anything that is not an id', async () => {
+		const { normaliseGistId } = await import('./gist.js');
+		expect(() => normaliseGistId('   ')).toThrow(RangeError);
+		expect(() => normaliseGistId('not an id')).toThrow(RangeError);
+		expect(() => normaliseGistId('https://gist.github.com/octocat/nope!')).toThrow(RangeError);
+	});
+
+	it('is what setActiveGistId enforces, so a bad paste never becomes the sync target', async () => {
+		const { setActiveGistId } = await import('./gist.js');
+		expect(() => setActiveGistId('nope!')).toThrow(RangeError);
+		expect(localStorage.getItem(GIST_ID_KEY)).toBeNull();
+		expect(setActiveGistId('https://gist.github.com/octocat/aa11bb22cc33')).toBe('aa11bb22cc33');
+		expect(localStorage.getItem(GIST_ID_KEY)).toBe('aa11bb22cc33');
+	});
+});
+
+describe('connecting and disconnecting a GitHub account', () => {
+	it('signs in and keeps the gist this browser was already using', async () => {
+		localStorage.setItem(GIST_ID_KEY, 'gist-mine');
+		fetchMock.mockResolvedValueOnce(verifiedUser('octocat'));
+
+		const { connectGitHubAccount, describeGistTarget } = await import('./gist.js');
+		const account = await connectGitHubAccount('ghp_valid');
+
+		expect(account.login).toBe('octocat');
+		expect(localStorage.getItem(TOKEN_KEY)).toBe('ghp_valid');
+		expect(describeGistTarget().id).toBe('gist-mine');
+	});
+
+	it('records whose gist it is when one is chosen', async () => {
+		localStorage.setItem(TOKEN_KEY, 'ghp_valid');
+		localStorage.setItem(ACCOUNT_KEY, JSON.stringify({ login: 'octocat', id: 1 }));
+
+		const { describeGistTarget, setActiveGistId } = await import('./gist.js');
+		setActiveGistId('aa11bb22cc33');
+
+		expect(describeGistTarget()).toMatchObject({ id: 'aa11bb22cc33', owner: 'octocat' });
+		expect(localStorage.getItem(OWNER_KEY)).toBe('octocat');
+	});
+
+	it('records whose gist it is when the app creates one on first save', async () => {
+		localStorage.setItem(TOKEN_KEY, 'ghp_valid');
+		localStorage.setItem(ACCOUNT_KEY, JSON.stringify({ login: 'octocat', id: 1 }));
+		fetchMock.mockResolvedValueOnce(jsonResponse({ id: 'created11gist' }, { status: 201 }));
+
+		const { saveAppData } = await import('./gist.js');
+		await saveAppData(createAppData());
+
+		expect(localStorage.getItem(GIST_ID_KEY)).toBe('created11gist');
+		expect(localStorage.getItem(OWNER_KEY)).toBe('octocat');
+	});
+
+	it('keeps the gist when the same account signs in again', async () => {
+		localStorage.setItem(GIST_ID_KEY, 'gist-mine');
+		localStorage.setItem(OWNER_KEY, 'octocat');
+		fetchMock.mockResolvedValueOnce(verifiedUser('octocat'));
+
+		const { connectGitHubAccount, describeGistTarget } = await import('./gist.js');
+		await connectGitHubAccount('ghp_valid');
+
+		expect(describeGistTarget().id).toBe('gist-mine');
+	});
+
+	it('forgets the gist when a different account signs in', async () => {
+		// That gist belongs to the account recorded beside it; GitHub would 404 every read and write
+		// of it for anyone else, which reads as "my data vanished" rather than "not yours".
+		localStorage.setItem(GIST_ID_KEY, 'gist-belonging-to-octocat');
+		localStorage.setItem(OWNER_KEY, 'octocat');
+		fetchMock.mockResolvedValueOnce(verifiedUser('ada'));
+
+		const { connectGitHubAccount, describeGistTarget } = await import('./gist.js');
+		await connectGitHubAccount('ghp_ada');
+
+		expect(describeGistTarget().id).toBeUndefined();
+		expect(localStorage.getItem(GIST_ID_KEY)).toBeNull();
+		expect(localStorage.getItem(OWNER_KEY)).toBeNull();
+	});
+
+	it('forgets it even though signing out cleared the previous account record first', async () => {
+		// The realistic way two accounts share a browser: sign out, then sign in as someone else. By
+		// then there is no "previous account" left to compare against — only the owner beside the id.
+		localStorage.setItem(TOKEN_KEY, 'ghp_octocat');
+		localStorage.setItem(ACCOUNT_KEY, JSON.stringify({ login: 'octocat', id: 1 }));
+		localStorage.setItem(GIST_ID_KEY, 'gist-belonging-to-octocat');
+		localStorage.setItem(OWNER_KEY, 'octocat');
+		fetchMock.mockResolvedValueOnce(verifiedUser('ada'));
+
+		const { connectGitHubAccount, disconnectGitHubAccount } = await import('./gist.js');
+		disconnectGitHubAccount();
+		await connectGitHubAccount('ghp_ada');
+
+		expect(localStorage.getItem(GIST_ID_KEY)).toBeNull();
+	});
+
+	it('leaves a gist whose owner was never recorded alone — unknown is not different', async () => {
+		// An id cached by a build before owners were recorded, or while running on a build token whose
+		// owner this app never asked about. Clearing it would orphan real data on a guess.
+		localStorage.setItem(GIST_ID_KEY, 'gist-from-an-older-build');
+		fetchMock.mockResolvedValueOnce(verifiedUser('ada'));
+
+		const { connectGitHubAccount, describeGistTarget } = await import('./gist.js');
+		await connectGitHubAccount('ghp_ada');
+
+		expect(describeGistTarget().id).toBe('gist-from-an-older-build');
+	});
+
+	it('changes nothing when the token is rejected', async () => {
+		localStorage.setItem(GIST_ID_KEY, 'gist-mine');
+		localStorage.setItem(OWNER_KEY, 'octocat');
+		fetchMock.mockResolvedValueOnce({
+			ok: false,
+			status: 401,
+			headers: new Headers(),
+			json: async () => ({ message: 'Bad credentials' })
+		});
+
+		const { connectGitHubAccount, describeGistTarget } = await import('./gist.js');
+		await expect(connectGitHubAccount('ghp_bad')).rejects.toThrow();
+
+		expect(localStorage.getItem(TOKEN_KEY)).toBeNull();
+		expect(describeGistTarget().id).toBe('gist-mine');
+	});
+
+	it('signing out drops the token but keeps the gist pointer', async () => {
+		// Forgetting it would mean signing back in created a second, empty gist and orphaned the
+		// first — the token is the secret worth dropping, the id is a bookmark.
+		localStorage.setItem(TOKEN_KEY, 'ghp_valid');
+		localStorage.setItem(ACCOUNT_KEY, JSON.stringify({ login: 'octocat', id: 1 }));
+		localStorage.setItem(GIST_ID_KEY, 'gist-mine');
+
+		const { describeGistTarget, disconnectGitHubAccount, isGistConfigured } =
+			await import('./gist.js');
+		const connection = disconnectGitHubAccount();
+
+		expect(connection.signedIn).toBe(false);
+		expect(localStorage.getItem(TOKEN_KEY)).toBeNull();
+		expect(localStorage.getItem(ACCOUNT_KEY)).toBeNull();
+		expect(describeGistTarget().id).toBe('gist-mine');
+		expect(isGistConfigured()).toBe(false);
 	});
 });
