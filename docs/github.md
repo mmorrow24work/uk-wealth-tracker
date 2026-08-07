@@ -187,6 +187,62 @@ Symptom actually observed: six issues sat in `status:in-progress` indefinitely w
 
 **Related:** the "does this issue have a PR" check (used both by this reset step and by "Find PR created for this issue") should match loosely — `"#<n>"` anywhere in the PR's title or body — not require the exact phrase `Closes #<n>`. Claude doesn't always use that literal wording (observed on issue #13's PR, which only had `(#13)` in the title); a strict match left a fully green, mergeable PR sitting untouched indefinitely, and a stricter reset step would have gone on to spawn a *second*, duplicate PR for the same issue on top of it.
 
+> **Update:** the loose "anywhere in the body" half of that match turned out to be too loose — see "Loose text matching cuts both ways" below. Current behavior is `Closes #<n>` in the body, or `#<n>` in the title only.
+
+---
+
+## Auto-splitting oversized issues on the first failure, not the second
+
+The original policy was manual: an issue that hit `--max-turns` (100) got split into smaller issues by hand, and only after failing *twice* — burning a second full 100-turn attempt on work already shown to be too large before anyone intervened. Automated instead: a step reads the failed run's own `execution_file` for `subtype == "error_max_turns"` specifically (not other failure modes — crashes, transient infra issues — which go through the generic stalled-issue reset instead, since splitting wouldn't help those), and on the very first occurrence runs a second, tightly-scoped Claude Code pass (opus, 20-turn cap, no `Write`/`Edit` — triage only) that narrows the failed issue to its smallest piece and spins the rest out as new issue(s) in the same milestone.
+
+Two bugs surfaced the very first time this actually fired for real (issue #67), both instructive beyond this specific pipeline:
+
+**Bug 1 — reading the wrong element of a JSON array.** `execution_file` is an array of every event in the session, and the session-start `"init"` event has its own `.subtype` field too. A naive `jq '.. | .subtype?' | head -1` grabs whichever `subtype` appears *first* in the file — the init event's, not the terminal outcome's — so the check always read `"init"` and concluded "not max-turns," silently skipping the split every time. Fix: filter for the specific event shape that actually carries the outcome (`select(.type=="result") | last`), not just the first match of a field name that happens to exist in multiple unrelated places. **General lesson:** `jq '..'` (recursive descent) is convenient but dangerous against an array of heterogeneous event objects — a field name colliding across event types will silently return the wrong one, and it'll look like it's working (valid output, just wrong).
+
+**Bug 2 — the earlier "loose text matching" fix for issue #13 (above) was, itself, too loose.** Broadening the PR-detection regex from strict `Closes #<n>` to `#<n>` anywhere in title *or body* fixed the under-matching problem, but created an over-matching one: PR #70 (issue #12's own PR) legitimately mentioned "issue #67" in its body as a cross-reference to related work, which made both "Reset stalled issues" and "Find PR" conclude issue #67 already had an open PR — so it stayed stuck `in-progress` even after the max-turns bug above was fixed, because the generic recovery path also thought it didn't need recovering. Fix: `Closes #<n>` in the body (the reliable, intentional phrasing), *or* `#<n>` in the title only (titles are short and rarely contain incidental cross-references to sibling work the way body prose does) — dropping the loose body-wide match entirely.
+
+**General lesson from both:** a fuzzy-matching fix for one false negative can create a false positive somewhere else, and the two bugs can mask each other — bug 2 meant the generic safety-net (stalled-issue reset) *also* failed to catch what bug 1 missed, so the issue looked completely fine (no error surfaced anywhere) while actually being permanently stuck. Worth testing a broadened match against not just the case it's meant to fix, but a deliberately-adjacent case (here: a *different* issue's PR mentioning this issue's number in passing).
+
+---
+
+## Runner reliability: GitHub-hosted queue delays vs. self-hosted alternatives
+
+Observed directly on this repo: three consecutive runs failed before even starting, with the annotation `"The job was not acquired by Runner of type hosted even after multiple attempts"`, followed by the `*/15` cron not firing *at all* for over four hours afterward. This is a documented GitHub Actions characteristic, not a bug in this workflow — scheduled (and to a lesser extent, all) workflow runs share a single job queue across every trigger on the entire platform, with no capacity reserved for cron specifically, and delays cluster hardest around round-number minutes (`:00`, `:15`, `:30`, `:45`) since that's when the most schedules everywhere collide.
+
+**Mitigation applied:** offsetting the cron off round minutes (`*/15 * * * *` → `7,22,37,52 * * * *`) — free, GitHub-endorsed, and it measurably helped (subsequent gaps were hours instead of the original single 4.5-hour dead stretch) but didn't eliminate the underlying congestion; the queue itself is shared infrastructure that a minute offset can't fully route around.
+
+If the delays keep recurring badly enough to be worth more than that, the real fix is a *dedicated* runner instead of a shared queue — which means self-hosting. There are three materially different ways to do that, and they're not equivalent:
+
+```mermaid
+flowchart TD
+    start["Seeing GitHub-hosted runner\nqueue delays / 'not acquired' failures?"]
+    start -->|No| stay1["Stay on GitHub-hosted runners\n(current setup -- zero cost, zero maintenance)"]
+    start -->|Yes| severity{"How often?"}
+
+    severity -->|"One-off bad night"| monitor["Keep the cron minute-offset fix,\nmonitor a few more cycles --\ndon't over-react to a single incident"]
+    severity -->|"Recurring / persistent"| pcOk{"OK depending on YOUR\nmachine being on 24/7?"}
+
+    pcOk -->|"Yes -- it's basically\nalways on anyway"| wsl["Local self-hosted runner (e.g. WSL)\nEliminates the queue wait, but now the\npipeline needs your PC on, awake, and the\nrunner process resident -- reverses the\n'runs without your PC' guarantee"]
+    pcOk -->|"No -- must stay\nindependent of my machine"| budget{"OK with a small\nrecurring cost?"}
+
+    budget -->|Yes| cloud["Cloud VM or third-party runner service\n(a small always-on VM running actions-runner,\nor BuildJet / WarpBuild / Namespace / RunsOn) --\nfixes the queue AND stays PC-independent"]
+    budget -->|No| stay2["Stay on GitHub-hosted,\naccept occasional delays,\nrely on cron backstop + instant merge-chaining"]
+
+    monitor -.->|if it keeps happening| pcOk
+
+    style stay1 fill:#e8f4ff,stroke:#0969da
+    style stay2 fill:#e8f4ff,stroke:#0969da
+    style wsl fill:#fff3cd,stroke:#c69500
+    style cloud fill:#e6ffed,stroke:#1a7f37
+    style monitor fill:#f5f5f5,stroke:#999
+```
+
+**Local self-hosted runner (e.g. WSL on the same machine used to set this up):** eliminates the queue wait entirely (a dedicated, always-listening runner starts jobs immediately) and costs nothing beyond what's already running — but it is not a strict improvement, it's a trade. It **directly reverses the design goal recorded earlier in this doc's own diagram**: the whole point of running on GitHub Cloud was that the pipeline survives the local machine being powered off. A local runner makes the pipeline's uptime dependent on the PC being on, awake, and WSL resident 24/7 — which has its own failure modes (sleep, lid-close, reboots, Windows Update) that could easily be just as disruptive as the GitHub queue delays being solved, just relocated rather than removed. Self-hosted runners are also a known attack surface if a repo ever accepts outside PRs (arbitrary code execution on the runner's machine) — low real risk on a personal, single-triggerer fork, but worth knowing as the standard caveat.
+
+**A small always-on cloud VM as a self-hosted runner**, or a **third-party GitHub-compatible runner service** (BuildJet, WarpBuild, Namespace, RunsOn — drop-in, just change `runs-on:`): both fix the actual problem (dedicated capacity, no shared-queue wait) *without* giving up the PC-independence property, at the cost of a small recurring bill and, for the VM option, one more thing to patch/monitor.
+
+**Decision as of this writing:** stay on GitHub-hosted runners. The bad night looks like an unusually severe platform-wide congestion window (three back-to-back total runner-acquisition failures is worse than GitHub's own documented typical case) rather than a steady-state problem, and once a run did get a runner, the merge-triggered instant chaining worked through 9 issues with no further stalls. Worth revisiting if multi-hour dead stretches become a recurring pattern rather than a one-off.
+
 ---
 
 ## Estimating build ETA from actual run data, not guesses
