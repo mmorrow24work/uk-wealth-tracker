@@ -241,9 +241,10 @@
 	<Card className="p-4">
 		<h2 class="text-lg font-semibold mb-1">Export data as Excel</h2>
 		<p class="text-sm text-muted-foreground mb-3">
-			Downloads a real <code>.xlsx</code> workbook — currently just your net worth history, one row per
-			recorded month. This is read-only: unlike the JSON export above, an XLSX file can't be brought back
-			in via Import, so it's a spreadsheet for your own use, not a backup.
+			Downloads a real <code>.xlsx</code> workbook — currently your net worth history, holdings and debts
+			(one row per holding/debt per recorded month). This is read-only: unlike the JSON export above,
+			an XLSX file can't be brought back in via Import, so it's a spreadsheet for your own use, not a
+			backup.
 		</p>
 		<Button type="button" size="sm" variant="outline" onclick={exportXlsx}>
 			Export data as Excel (.xlsx)
