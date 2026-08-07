@@ -49,6 +49,10 @@ export * from './marriage-allowance.js';
 // component.
 export * from './student-loan.js';
 
+// ISA allowance tracker across all six wrappers (2026/27) — see the Tax tab's
+// IsaAllowanceTracker component.
+export * from './isa.js';
+
 // GitHub Gist persistence — the only place any feature tab should read/write stored data from.
 export * from './gist.js';
 
