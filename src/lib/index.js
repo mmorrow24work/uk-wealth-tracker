@@ -61,6 +61,10 @@ export * from './salary-sacrifice.js';
 // tab's DefinedBenefitIncome component.
 export * from './defined-benefit.js';
 
+// Every retirement income stream in one view — DB, annuity, SIPP drawdown, ISA withdrawals, GIA
+// dividends and the State Pension — see the Pensions tab's RetirementIncomeStreams component.
+export * from './retirement-income.js';
+
 // GitHub Gist persistence — the only place any feature tab should read/write stored data from.
 export * from './gist.js';
 

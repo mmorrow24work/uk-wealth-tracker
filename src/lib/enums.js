@@ -297,6 +297,15 @@ export const PENSION_TYPE_LABELS = Object.freeze({
 export const DEFINED_BENEFIT_PENSION_TYPES = Object.freeze(['db_final_salary', 'db_care']);
 
 /**
+ * Pension types that are a pot of money drawn down or annuitised, rather than a promised income — the
+ * pots the retirement income stream builder (#33) turns into SIPP drawdown and annuity income. A
+ * Lifetime ISA is a pot too, but it is drawn tax-free after 60, which makes it an ISA withdrawal
+ * rather than pension income, so it is not here.
+ * @type {readonly PensionType[]}
+ */
+export const DEFINED_CONTRIBUTION_PENSION_TYPES = Object.freeze(['dc_workplace', 'sipp']);
+
+/**
  * The pot types the Pension tracker's add/edit form supports (issue #29) — every `PensionType`
  * except `state`. State Pension has no pot to add by hand; it is derived from NI qualifying years
  * instead, via a dedicated flow (#31 — UK State Pension projection from NI qualifying years).
