@@ -56,7 +56,7 @@ Reactive charts updating on slider input, state shared across pension/forecast/t
 **What "a JSON blob in a private Gist" actually means:** the app's entire dataset (profile, monthly entries, pensions, properties, assets, dividends, milestones, budget) is serialized into one JSON object and stored as the content of a single file inside a GitHub Gist. There are no tables, no rows, no query engine — every save overwrites that one file's content wholesale, every load fetches and re-parses it. "Private" here means GitHub's **secret** gist visibility: not listed publicly, not indexed by search — but **not access-controlled**. Anyone who obtains the raw file URL or the Gist's id can read its full contents without authenticating as the owner; it's obscurity, not encryption or an access-control list. This is directly relevant to the sign-in/delete-my-data work below — being signed in identifies *which* Gist is yours to read and write, it does not make that Gist's content itself any more protected than its id staying secret.
 
 - No backend required, either mode
-- GitHub sign-in (auth) only applies to Gist mode — a user on browser-only storage never needs a GitHub token at all. See GitHub Milestone 7 ("Data Portability & Access") for the per-user "delete all my data" action this makes possible for Gist mode.
+- GitHub sign-in (auth) only applies to Gist mode — a user on browser-only storage never needs a GitHub token at all. See GitHub Milestone 7 ("Data Portability & Access") and the delete decision below for the per-user "delete all my data" action this makes possible for Gist mode.
 - JSON export/import works in both modes, as the common interchange format between them; CSV and XLSX export are secondary, read-only data paths (WealthR data portability)
 
 ### Decision: in-app token entry, not the OAuth device flow
@@ -68,6 +68,16 @@ The device flow was the preferred option on paper — no credential handling by 
 What the pasted-token flow keeps: the token is verified against the GitHub API before it is stored (so a bad token fails at sign-in, not at the next save), it is stored only in the browser, it is never logged or included in an error message, and the app shows which account and which Gist are connected. What it doesn't: a token in `localStorage` is readable by any script on the app's origin. That is true of anything a backend-less app can hold; the mitigations are the token's narrow `gist` scope and the user's ability to revoke it.
 
 `VITE_GITHUB_TOKEN` remains as a build-time fallback for deployments configured before this existed — but a `VITE_` variable is inlined into the client bundle, so that token is readable by anyone who can read the deployed JavaScript, which is precisely what signing in avoids.
+
+### Decision: "delete all my data" deletes the whole Gist, and proves ownership before it does
+
+Two decisions, both forced by what a Gist actually is.
+
+**The whole Gist, not an emptied one.** A Gist keeps its revision history, and every revision stays readable to anyone holding the Gist's id — which, per the secrecy note above, is the *only* thing protecting a secret Gist's contents. Overwriting the data file with an empty document, or removing the file with a `PATCH`, would therefore leave the user's entire financial history intact one click into GitHub's "Revisions" tab, while telling them it was deleted. `DELETE /gists/:id` is the only operation that takes the history with it, so that is what the action does. The exception is a Gist that also holds files this app never wrote (a Gist the user keeps for other things): there only `uk-wealth-tracker.json` is removed, the surviving revisions are stated on screen, and deleting the rest is left to the person who knows what else is in it.
+
+**Ownership is proved, not assumed.** The action takes no Gist id — there is no parameter for one — and runs only against the Gist this browser is syncing with, after the signed-in account, the account the token authenticates as when re-checked, and the Gist's `owner` from GitHub all agree. A build-time `VITE_GITHUB_TOKEN` cannot use the action at all: the app has never presented that token to GitHub, so it can prove nothing about whose account it reaches, and guessing is not an option for an irreversible operation. This is the concrete reason the sign-in decision above had to land first.
+
+Browser-only mode gets its own equally-confirmed action, which clears IndexedDB *and* the `localStorage` fallback — leaving either one behind would let the next load resurrect the data the user just deleted.
 
 ---
 

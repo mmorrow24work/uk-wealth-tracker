@@ -22,7 +22,7 @@ import { get, writable } from 'svelte/store';
 import { BrowserStorageError } from './browser-storage.js';
 import { GistError } from './gist.js';
 import { createAppData } from './model.js';
-import { loadAppData, saveAppData } from './persistence.js';
+import { deleteAllData, loadAppData, saveAppData } from './persistence.js';
 
 /**
  * Not re-declared as a local `@typedef` (unlike most `$lib` modules) because `index.js` re-exports
@@ -171,4 +171,46 @@ export function flushAppDataSync() {
 		saveTimer = undefined;
 	}
 	return persist();
+}
+
+/**
+ * Delete everything, everywhere this app has put it (issue #63), and leave the running app holding a
+ * fresh empty document.
+ *
+ * The in-memory half matters as much as the stored half: a pending debounced save is cancelled
+ * *before* the wipe starts, and the reset that follows it is made with saving suppressed. Without
+ * both, the 800ms timer from the user's last edit — or the store's own subscriber reacting to the
+ * reset — would write the document straight back out again, into a Gist that had just been deleted.
+ *
+ * The reset is a plain `set`, not a re-hydrate: the backend was just emptied, so the only thing a
+ * load could return is the empty document this sets anyway — and in Gist mode it would be a request
+ * against an id GitHub no longer has, i.e. an error banner for a wipe that worked.
+ *
+ * Rejects (after recording the failure on {@link syncState}) if anything refused to delete, leaving
+ * {@link appData} untouched — data that is still stored should still be on screen.
+ *
+ * Callers are expected to have confirmed with the user first; `isDeleteConfirmed` in
+ * `./persistence.js` is the phrase check the connect page's panel gates this behind.
+ *
+ * @returns {Promise<import('./persistence.js').DeleteResult>} What was deleted, for a UI that has to
+ *   report it honestly (a Gist deleted outright, or only this app's file removed from one).
+ */
+export async function deleteAllAppData() {
+	if (saveTimer) {
+		clearTimeout(saveTimer);
+		saveTimer = undefined;
+	}
+	const wasSuppressed = suppressSync;
+	suppressSync = true;
+	try {
+		const result = await deleteAllData();
+		appData.set(createAppData());
+		syncState.update((state) => ({ ...state, syncing: false, error: null }));
+		return result;
+	} catch (cause) {
+		syncState.update((state) => ({ ...state, error: describeError(cause, 'delete your data') }));
+		throw cause;
+	} finally {
+		suppressSync = wasSuppressed;
+	}
 }

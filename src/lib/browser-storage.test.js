@@ -37,7 +37,7 @@ function createMemoryStorage({ setItemThrows = false } = {}) {
  * promise wrappers are genuinely exercised rather than resolving before their handlers are even
  * attached.
  *
- * @param {{ fault?: 'open-throws' | 'open-errors' | 'blocked' | 'transaction-throws' | 'read-fails' | 'write-fails' }} [options]
+ * @param {{ fault?: 'open-throws' | 'open-errors' | 'blocked' | 'transaction-throws' | 'read-fails' | 'write-fails' | 'delete-fails' }} [options]
  * @returns {{ indexedDB: IDBFactory, records: Map<string, unknown> }}
  */
 function createMemoryIndexedDb({ fault } = {}) {
@@ -92,6 +92,14 @@ function createMemoryIndexedDb({ fault } = {}) {
 						const request = { onsuccess: null, onerror: null, result: key, error: null };
 						queueMicrotask(() => request.onsuccess?.());
 						return request;
+					},
+					/** @param {string} key */
+					delete(key) {
+						if (fault !== 'delete-fails') records.delete(key);
+						/** @type {any} */
+						const request = { onsuccess: null, onerror: null, result: undefined, error: null };
+						queueMicrotask(() => request.onsuccess?.());
+						return request;
 					}
 				})
 			};
@@ -100,7 +108,9 @@ function createMemoryIndexedDb({ fault } = {}) {
 				// Two microtasks out: after whatever request the caller queues on this transaction.
 				queueMicrotask(() =>
 					queueMicrotask(() =>
-						fault === 'write-fails' ? transaction.onerror?.() : transaction.oncomplete?.()
+						fault === 'write-fails' || fault === 'delete-fails'
+							? transaction.onerror?.()
+							: transaction.oncomplete?.()
 					)
 				);
 			}
@@ -365,6 +375,106 @@ describe('BrowserStorageError — genuine failures only', () => {
 
 		const { saveAppData } = await import('./browser-storage.js');
 		await expect(saveAppData(createAppData())).rejects.toMatchObject({
+			name: 'BrowserStorageError',
+			cause: expect.any(Error)
+		});
+	});
+});
+
+describe('deleteAppData — the local half of "delete all my data" (#63)', () => {
+	it('removes the IndexedDB record, so the next load is a fresh document', async () => {
+		const fake = createMemoryIndexedDb();
+		vi.stubGlobal('indexedDB', fake.indexedDB);
+
+		const { deleteAppData, loadAppData, saveAppData } = await import('./browser-storage.js');
+		await saveAppData(createAppData({ profile: createProfile({ name: 'Ada' }) }));
+		expect(fake.records.has(DOCUMENT_KEY)).toBe(true);
+
+		await deleteAppData();
+
+		expect(fake.records.has(DOCUMENT_KEY)).toBe(false);
+		expect(withoutIds(await loadAppData())).toEqual(withoutIds(createAppData()));
+	});
+
+	it('removes the localStorage copy as well, not just the primary backend', async () => {
+		// The copy can be there because IndexedDB was unavailable when it was written, or because a
+		// pre-#61 build wrote it. Clearing only IndexedDB would leave it for the next load to adopt —
+		// a deletion that undoes itself.
+		const fake = createMemoryIndexedDb();
+		vi.stubGlobal('indexedDB', fake.indexedDB);
+		localStorage.setItem(LOCAL_DATA_KEY, JSON.stringify(createAppData()));
+
+		const { deleteAppData, saveAppData } = await import('./browser-storage.js');
+		await saveAppData(createAppData({ profile: createProfile({ name: 'Ada' }) }));
+		await deleteAppData();
+
+		expect(fake.records.has(DOCUMENT_KEY)).toBe(false);
+		expect(localStorage.getItem(LOCAL_DATA_KEY)).toBeNull();
+	});
+
+	it('clears localStorage when there is no IndexedDB at all', async () => {
+		localStorage.setItem(LOCAL_DATA_KEY, JSON.stringify(createAppData()));
+
+		const { deleteAppData, loadAppData } = await import('./browser-storage.js');
+		await deleteAppData();
+
+		expect(localStorage.getItem(LOCAL_DATA_KEY)).toBeNull();
+		expect(withoutIds(await loadAppData())).toEqual(withoutIds(createAppData()));
+	});
+
+	it('leaves everything that is not the document alone', async () => {
+		// The token, the account, the Gist pointer and the mode choice all belong to other modules;
+		// deleting data is not signing out.
+		localStorage.setItem(LOCAL_DATA_KEY, JSON.stringify(createAppData()));
+		localStorage.setItem('uk-wealth-tracker:github-token', 'ghp_valid');
+		localStorage.setItem('uk-wealth-tracker:gist-id', 'aa11bb22cc33');
+		localStorage.setItem('uk-wealth-tracker:persistence-mode', 'browser');
+
+		const { deleteAppData } = await import('./browser-storage.js');
+		await deleteAppData();
+
+		expect(localStorage.getItem(LOCAL_DATA_KEY)).toBeNull();
+		expect(localStorage.getItem('uk-wealth-tracker:github-token')).toBe('ghp_valid');
+		expect(localStorage.getItem('uk-wealth-tracker:gist-id')).toBe('aa11bb22cc33');
+		expect(localStorage.getItem('uk-wealth-tracker:persistence-mode')).toBe('browser');
+	});
+
+	it('deleting nothing is a success, not an error', async () => {
+		vi.stubGlobal('indexedDB', createMemoryIndexedDb().indexedDB);
+		const { deleteAppData } = await import('./browser-storage.js');
+		await expect(deleteAppData()).resolves.toBeUndefined();
+	});
+
+	it('succeeds with no storage at all (SSR), having nothing to delete', async () => {
+		vi.unstubAllGlobals();
+		const { deleteAppData } = await import('./browser-storage.js');
+		await expect(deleteAppData()).resolves.toBeUndefined();
+	});
+
+	it('throws BrowserStorageError naming the backend that refused', async () => {
+		vi.stubGlobal('indexedDB', createMemoryIndexedDb({ fault: 'delete-fails' }).indexedDB);
+
+		const { BrowserStorageError, deleteAppData } = await import('./browser-storage.js');
+		await expect(deleteAppData()).rejects.toThrow(BrowserStorageError);
+		await expect(deleteAppData()).rejects.toThrow(/IndexedDB/);
+	});
+
+	it('still clears localStorage when IndexedDB refuses, rather than stopping at the first failure', async () => {
+		// A half-done wipe that leaves the other copy behind is the one outcome worth avoiding: the
+		// user is told it failed, and there is nothing left for a later load to resurrect.
+		vi.stubGlobal('indexedDB', createMemoryIndexedDb({ fault: 'delete-fails' }).indexedDB);
+		localStorage.setItem(LOCAL_DATA_KEY, JSON.stringify(createAppData()));
+
+		const { deleteAppData } = await import('./browser-storage.js');
+		await expect(deleteAppData()).rejects.toThrow();
+		expect(localStorage.getItem(LOCAL_DATA_KEY)).toBeNull();
+	});
+
+	it('carries the underlying failure as its cause', async () => {
+		vi.stubGlobal('indexedDB', createMemoryIndexedDb({ fault: 'delete-fails' }).indexedDB);
+
+		const { deleteAppData } = await import('./browser-storage.js');
+		await expect(deleteAppData()).rejects.toMatchObject({
 			name: 'BrowserStorageError',
 			cause: expect.any(Error)
 		});

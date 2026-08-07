@@ -84,6 +84,7 @@ export {
 	GistError,
 	clearActiveGistId,
 	connectGitHubAccount,
+	deleteGistData,
 	describeGistTarget,
 	disconnectGitHubAccount,
 	gistWebUrl,

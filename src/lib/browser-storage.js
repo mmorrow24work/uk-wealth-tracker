@@ -235,6 +235,31 @@ function writeToDatabase(db, raw) {
 	});
 }
 
+/**
+ * Remove the record, resolving on `transaction.oncomplete` for the same reason {@link writeToDatabase}
+ * does — "deleted" has to mean committed, not queued, or a wipe followed by closing the tab could
+ * leave the document behind.
+ *
+ * @param {IDBDatabase} db
+ * @returns {Promise<void>}
+ */
+function deleteFromDatabase(db) {
+	return new Promise((resolve, reject) => {
+		/** @type {IDBTransaction} */
+		let transaction;
+		try {
+			transaction = db.transaction(STORE_NAME, 'readwrite');
+			transaction.objectStore(STORE_NAME).delete(DOCUMENT_KEY);
+		} catch (cause) {
+			reject(cause);
+			return;
+		}
+		transaction.oncomplete = () => resolve();
+		transaction.onerror = () => reject(transaction.error);
+		transaction.onabort = () => reject(transaction.error);
+	});
+}
+
 /* -------------------------------------------------------------------------- */
 /* Public API — the same load/save contract `gist.js` exposes                  */
 /* -------------------------------------------------------------------------- */
@@ -314,5 +339,64 @@ export async function saveAppData(data) {
 	if (saveToLocalStorage(raw)) return;
 	throw new BrowserStorageError(
 		'No browser storage is available: neither IndexedDB nor localStorage could be used to save your data.'
+	);
+}
+
+/**
+ * Delete this browser's copy of the document — the local half of "delete all my data" (issue #63),
+ * and the whole of it in browser-only mode, where there is nowhere else the data has been.
+ *
+ * Both backends are cleared, always, whichever one the last save happened to use: a document can be
+ * in `localStorage` because IndexedDB was unavailable at the time, or because a pre-#61 build wrote
+ * it there, and a wipe that cleared only the primary would leave that copy sitting one key over —
+ * which the *next* load would then adopt as the user's data, undoing the deletion. For the same
+ * reason neither failure short-circuits the other: both are attempted, and only then does this
+ * throw.
+ *
+ * Irreversible, and the caller is expected to have confirmed it — see `./persistence.js`'s
+ * `deleteAllData` and `DELETE_CONFIRMATION_PHRASE`. Deleting nothing (a browser with no document
+ * stored yet) is a success, not an error.
+ *
+ * Leaves everything that isn't the document alone: the persistence-mode choice, the GitHub token and
+ * account (`./github-auth.js`) and the Gist pointer (`./gist.js`) are all separate keys with their
+ * own owners, and signing out is a different action from deleting data.
+ *
+ * @returns {Promise<void>}
+ * @throws {BrowserStorageError} If a backend that *has* the document refused to delete it.
+ */
+export async function deleteAppData() {
+	/** @type {unknown} */
+	let databaseFailure;
+	const db = await openDatabase();
+	if (db) {
+		try {
+			await deleteFromDatabase(db);
+		} catch (cause) {
+			databaseFailure = cause;
+		}
+	}
+
+	/** @type {unknown} */
+	let localFailure;
+	if (hasLocalStorage()) {
+		try {
+			localStorage.removeItem(LOCAL_DATA_KEY);
+		} catch (cause) {
+			localFailure = cause;
+		}
+	}
+
+	if (databaseFailure === undefined && localFailure === undefined) return;
+
+	const failures = [
+		databaseFailure !== undefined ? 'IndexedDB' : undefined,
+		localFailure !== undefined ? 'localStorage' : undefined
+	].filter((where) => where !== undefined);
+	const cause = databaseFailure ?? localFailure;
+	throw new BrowserStorageError(
+		`Could not delete this browser's copy of your data from ${failures.join(' or ')}: ${
+			cause instanceof Error ? cause.message : String(cause)
+		}`,
+		{ cause }
 	);
 }

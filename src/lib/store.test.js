@@ -27,6 +27,8 @@ function withoutIds(value) {
 let loadAppDataMock;
 /** @type {import('vitest').Mock} */
 let saveAppDataMock;
+/** @type {import('vitest').Mock} */
+let deleteAllDataMock;
 /** @type {typeof import('./gist.js').GistError} */
 let GistError;
 /** @type {typeof import('./browser-storage.js').BrowserStorageError} */
@@ -41,7 +43,8 @@ vi.mock('./persistence.js', async () => {
 	return {
 		...actual,
 		loadAppData: vi.fn(),
-		saveAppData: vi.fn()
+		saveAppData: vi.fn(),
+		deleteAllData: vi.fn()
 	};
 });
 
@@ -50,6 +53,7 @@ beforeEach(async () => {
 	const persistence = await import('./persistence.js');
 	loadAppDataMock = /** @type {import('vitest').Mock} */ (persistence.loadAppData);
 	saveAppDataMock = /** @type {import('vitest').Mock} */ (persistence.saveAppData);
+	deleteAllDataMock = /** @type {import('vitest').Mock} */ (persistence.deleteAllData);
 	// The same error classes store.js's own `import` sees — obtained through a plain dynamic import
 	// of the (unmocked) backend modules within the same module registry, not `vi.importActual`,
 	// since `vi.resetModules()` between tests would otherwise make those distinct classes and break
@@ -58,6 +62,7 @@ beforeEach(async () => {
 	({ BrowserStorageError } = await import('./browser-storage.js'));
 	loadAppDataMock.mockReset().mockResolvedValue(createAppData());
 	saveAppDataMock.mockReset().mockResolvedValue(undefined);
+	deleteAllDataMock.mockReset().mockResolvedValue({ mode: 'browser', gist: null });
 });
 
 afterEach(() => {
@@ -274,5 +279,100 @@ describe('SYNC_DEBOUNCE_MS', () => {
 	it('matches the exported constant', async () => {
 		const { SYNC_DEBOUNCE_MS } = await import('./store.js');
 		expect(SYNC_DEBOUNCE_MS).toBe(SYNC_DEBOUNCE_MS_FOR_TESTS);
+	});
+});
+
+describe('deleteAllAppData', () => {
+	it('empties the in-memory document once the backends have deleted theirs', async () => {
+		const { appData, deleteAllAppData, hydrateAppData } = await import('./store.js');
+		loadAppDataMock.mockResolvedValue(createAppData({ profile: createProfile({ name: 'Ada' }) }));
+		await hydrateAppData();
+		expect(get(appData).profile.name).toBe('Ada');
+
+		await deleteAllAppData();
+
+		expect(deleteAllDataMock).toHaveBeenCalledTimes(1);
+		expect(withoutIds(get(appData))).toEqual(withoutIds(createAppData()));
+	});
+
+	it('does not save the empty document it just set', async () => {
+		// Otherwise the wipe's own reset would write a document straight back into the backend it had
+		// just been deleted from.
+		const { deleteAllAppData, hydrateAppData } = await import('./store.js');
+		await hydrateAppData();
+
+		await deleteAllAppData();
+		await vi.advanceTimersByTimeAsync(SYNC_DEBOUNCE_MS_FOR_TESTS + 100);
+
+		expect(saveAppDataMock).not.toHaveBeenCalled();
+	});
+
+	it('cancels a debounced save still pending from the last edit', async () => {
+		// The 800ms timer from the user's final keystroke would otherwise fire after the wipe and
+		// re-upload everything that was just deleted.
+		const { appData, deleteAllAppData, hydrateAppData } = await import('./store.js');
+		await hydrateAppData();
+
+		appData.set(createAppData({ profile: createProfile({ name: 'Ada' }) }));
+		await deleteAllAppData();
+		await vi.advanceTimersByTimeAsync(SYNC_DEBOUNCE_MS_FOR_TESTS + 100);
+
+		expect(saveAppDataMock).not.toHaveBeenCalled();
+	});
+
+	it('goes on saving normally after the wipe', async () => {
+		const { appData, deleteAllAppData, hydrateAppData } = await import('./store.js');
+		await hydrateAppData();
+		await deleteAllAppData();
+
+		appData.set(createAppData({ profile: createProfile({ name: 'Starting again' }) }));
+		await vi.advanceTimersByTimeAsync(SYNC_DEBOUNCE_MS_FOR_TESTS + 100);
+
+		expect(saveAppDataMock).toHaveBeenCalledTimes(1);
+	});
+
+	it('returns what was deleted, so the UI can report it honestly', async () => {
+		deleteAllDataMock.mockResolvedValue({
+			mode: 'gist',
+			gist: {
+				outcome: 'file-deleted',
+				gistId: 'aa11bb22cc33',
+				owner: 'octocat',
+				revisionsRemain: true,
+				buildIdRemains: false
+			}
+		});
+
+		const { deleteAllAppData } = await import('./store.js');
+		expect(await deleteAllAppData()).toMatchObject({
+			mode: 'gist',
+			gist: { outcome: 'file-deleted', revisionsRemain: true }
+		});
+	});
+
+	it('keeps the document on screen when the deletion fails, and records why', async () => {
+		deleteAllDataMock.mockRejectedValue(new GistError('Gist belongs to @ada'));
+
+		const { appData, deleteAllAppData, hydrateAppData, syncState } = await import('./store.js');
+		loadAppDataMock.mockResolvedValue(createAppData({ profile: createProfile({ name: 'Ada' }) }));
+		await hydrateAppData();
+
+		await expect(deleteAllAppData()).rejects.toThrow(GistError);
+
+		expect(get(appData).profile.name).toBe('Ada');
+		expect(get(syncState).error).toBe('Gist belongs to @ada');
+	});
+
+	it('still saves later edits after a failed wipe', async () => {
+		deleteAllDataMock.mockRejectedValue(new BrowserStorageError('storage blocked'));
+
+		const { appData, deleteAllAppData, hydrateAppData } = await import('./store.js');
+		await hydrateAppData();
+		await expect(deleteAllAppData()).rejects.toThrow(BrowserStorageError);
+
+		appData.set(createAppData({ profile: createProfile({ name: 'Still here' }) }));
+		await vi.advanceTimersByTimeAsync(SYNC_DEBOUNCE_MS_FOR_TESTS + 100);
+
+		expect(saveAppDataMock).toHaveBeenCalledTimes(1);
 	});
 });

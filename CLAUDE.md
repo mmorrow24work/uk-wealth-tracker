@@ -37,7 +37,7 @@ src/
 ├── routes/            # one directory per tab: forecast, retirement, tax, pensions,
 │                       # dividends, property, assets, budget, estate
 ├── lib/
-│   ├── persistence.js  # one load/save API over both storage modes — the only one store.js calls
+│   ├── persistence.js  # one load/save/delete API over both storage modes — the only one store.js calls
 │   ├── browser-storage.js # browser-only persistence (IndexedDB, localStorage fallback)
 │   ├── gist.js         # GitHub Gist read/write (+ which Gist, + connect/disconnect)
 │   ├── github-auth.js  # GitHub sign-in: the token and the account it belongs to
@@ -48,7 +48,7 @@ src/
 └── components/         # NetWorthChart.svelte, ForecastChart.svelte, etc.
 ```
 
-Key architectural point: **all persisted data lives in one JSON blob**, either in the browser (default, no setup) or additionally synced to a private GitHub Gist (opt-in, cross-device), read/written through `lib/persistence.js`, which routes to `lib/browser-storage.js` (IndexedDB + `localStorage` fallback) or `lib/gist.js` depending on the active mode. There is no backend and no database — every feature tab reads/writes against the same in-memory store (`lib/store.js`). Gist mode's credential comes from `lib/github-auth.js` (in-app sign-in, token in `localStorage`; `VITE_GITHUB_TOKEN` is only a fallback) — `gist.js` imports it, never the other way round. "Private" Gist means GitHub's *secret* (unlisted) visibility, not access control — anyone with the raw URL or Gist id can read it; see DESIGN.md for why this matters for the sign-in / delete-my-data work. When adding a new feature area, extend the shared data model rather than introducing separate storage.
+Key architectural point: **all persisted data lives in one JSON blob**, either in the browser (default, no setup) or additionally synced to a private GitHub Gist (opt-in, cross-device), read/written through `lib/persistence.js`, which routes to `lib/browser-storage.js` (IndexedDB + `localStorage` fallback) or `lib/gist.js` depending on the active mode. There is no backend and no database — every feature tab reads/writes against the same in-memory store (`lib/store.js`). Gist mode's credential comes from `lib/github-auth.js` (in-app sign-in, token in `localStorage`; `VITE_GITHUB_TOKEN` is only a fallback) — `gist.js` imports it, never the other way round. "Private" Gist means GitHub's *secret* (unlisted) visibility, not access control — anyone with the raw URL or Gist id can read it; see DESIGN.md for why this matters for the sign-in / delete-my-data work. Deleting data (`deleteAllData` in `persistence.js`, `deleteGistData` in `gist.js`) is the one irreversible path in the codebase: it deletes the whole Gist rather than emptying it, because a Gist's revision history outlives its content, and it refuses to run until the signed-in account, the live token's account and the Gist's owner all agree. When adding a new feature area, extend the shared data model rather than introducing separate storage.
 
 ## Data model
 

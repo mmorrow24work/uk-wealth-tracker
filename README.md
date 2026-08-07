@@ -229,9 +229,9 @@ uk-wealth-tracker/
 │   │   ├── assets/
 │   │   ├── budget/
 │   │   ├── estate/
-│   │   └── connect/              # GitHub sign-in for Gist mode (not a feature tab)
+│   │   └── connect/              # GitHub sign-in for Gist mode + delete all my data (not a feature tab)
 │   ├── lib/
-│   │   ├── persistence.js        # one load/save API over both storage modes
+│   │   ├── persistence.js        # one load/save/delete API over both storage modes
 │   │   ├── browser-storage.js    # browser-only persistence (IndexedDB + localStorage)
 │   │   ├── gist.js               # GitHub Gist persistence
 │   │   ├── github-auth.js        # GitHub sign-in: the token + the account it belongs to
@@ -270,7 +270,7 @@ The app supports two persistence modes:
 1. **Browser-only (default).** Data is stored in the browser itself (IndexedDB, with `localStorage` as fallback). No account, no token, no setup — works immediately, entirely offline. Data stays on the one device unless you export it. Modelled on [SquirrelPlan](https://squirrelplan.app/)'s approach; see GitHub Milestone 7 ("Data Portability & Access") for status.
 2. **GitHub Gist sync (opt-in).** For access from more than one device, the same data is also written to a single JSON file in a private ("secret") GitHub Gist.
 
-   **What "a JSON blob in a private Gist" means:** the entire dataset — profile, monthly entries, pensions, properties, assets, dividends, milestones, budget — is one JSON object stored as a single file's content in a Gist. There's no database: every save overwrites that file wholesale, every load re-fetches and re-parses it. "Private" means GitHub's **secret** gist visibility — unlisted and unindexed, but **not access-controlled**: anyone with the raw file URL or the Gist's id can read it without authenticating. Treat the id itself as a secret, not as a real access boundary. Signing in (below) identifies *which* Gist is yours to read and write; it does not make that Gist's contents any better protected than its id staying secret. (See Milestone 7 for the "delete all my data" action for this mode.)
+   **What "a JSON blob in a private Gist" means:** the entire dataset — profile, monthly entries, pensions, properties, assets, dividends, milestones, budget — is one JSON object stored as a single file's content in a Gist. There's no database: every save overwrites that file wholesale, every load re-fetches and re-parses it. "Private" means GitHub's **secret** gist visibility — unlisted and unindexed, but **not access-controlled**: anyone with the raw file URL or the Gist's id can read it without authenticating. Treat the id itself as a secret, not as a real access boundary. Signing in (below) identifies *which* Gist is yours to read and write; it does not make that Gist's contents any better protected than its id staying secret. It is also what lets the app prove a Gist is yours before [deleting it](#deleting-your-data).
 
 Both modes speak the same JSON shape, so **Export data as JSON** / **Import data from JSON** works as a manual bridge between them, and as a backup mechanism either way.
 
@@ -290,11 +290,24 @@ Sign in from inside the app — no environment files, no rebuild, no redeploy:
 
 **Using a Gist you already have** (this is how a second device joins the same data): paste its id, or its whole URL, into **Which Gist** on the same page and click **Use this Gist**.
 
-**Signing out** forgets the token and the account in this browser and returns it to browser-only storage. Nothing is deleted — not the Gist, not this browser's copy — and the token stays valid until you revoke it at https://github.com/settings/tokens. (A "delete all my data" action for Gist mode is issue #63.)
+**Signing out** forgets the token and the account in this browser and returns it to browser-only storage. Nothing is deleted — not the Gist, not this browser's copy — and the token stays valid until you revoke it at https://github.com/settings/tokens. To delete the data itself, see [Deleting your data](#deleting-your-data).
 
 **Where the token lives.** In this browser's own storage, sent to nowhere but `api.github.com`, never written to the console, never included in an error message, and never stored inside the Gist itself. It is readable by any script running on this app's origin — which is true of any token a backend-less app can hold — so the protection that matters is the token's narrow `gist` scope and your ability to revoke it.
 
 > **Why a pasted token rather than "Sign in with GitHub"?** GitHub's OAuth device-flow endpoints send no CORS headers, so a browser cannot complete that exchange without a server to proxy it, and this app is a static GitHub Pages build with no backend by design.
+
+### Deleting your data
+
+**Delete all my data** is on the same **Connect GitHub** page, below the connection panel. It is irreversible, has no undo and no backup, and what it reaches depends on the storage mode:
+
+- **Gist sync mode** — the Gist itself *and* this browser's copy of it. The whole Gist is deleted (`DELETE /gists/:id`), not just emptied, because a Gist keeps its revision history: overwriting or removing the data file would leave every earlier version readable to anyone with the Gist's id. If the Gist also holds files this app never wrote, only `uk-wealth-tracker.json` is removed and you are told that the earlier revisions survive — deleting the rest is your call, since only you know what else is in there.
+- **Browser-only mode** — this browser's copy (IndexedDB *and* the `localStorage` fallback), which is everywhere the data has been in that mode. No other device is reached, and no request is made.
+
+Either way the app keeps your GitHub sign-in, your token and your storage mode: this deletes data, it does not sign you out.
+
+**Which Gist it can delete.** Only the one this browser is syncing with, and only after the app has proved it belongs to you. Before anything is deleted, three identities have to agree: the account you signed in as, the account the token authenticates as when re-checked against `GET /user`, and the account GitHub reports as the Gist's `owner`. Any disagreement aborts with nothing deleted. The action takes no Gist id from the UI, so there is nothing to point at another Gist in the first place, and it is unavailable entirely on a build-time `VITE_GITHUB_TOKEN` — the app has never asked GitHub whose that token is, so it cannot prove anything about it. Sign in first.
+
+**Confirming it.** The first click only opens a confirmation panel, which spells out exactly what will go (the Gist id, the account, this browser's copy) and requires the word `DELETE` typed exactly before the destructive button becomes clickable. Enter does not submit it; Cancel discards it.
 
 #### Build-time configuration (still supported)
 
