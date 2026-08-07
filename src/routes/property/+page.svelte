@@ -31,9 +31,9 @@
 <p>
 	Property tracking — primary residence, buy-to-let and holiday home types with value, outstanding
 	mortgage, monthly payment, interest rate, mortgage type and deal expiry date, plus each property's
-	equity, buy-to-let cashflow/yield and a toggle for whether its equity counts towards net worth.
-	The mortgage deal expiry reminder and an equity growth projection chart (#38) land in a later
-	build.
+	equity, buy-to-let cashflow/yield and a toggle for whether its equity counts towards net worth. A
+	mortgage deal expiry reminder flags any deal within 90 days of running out (amber) or already
+	expired (red), and a 30-year equity growth projection chart is available per property.
 </p>
 <p class="text-sm text-muted-foreground">
 	{getPersistenceMode() === 'gist' ? 'Synced to your GitHub Gist' : 'Saved to this browser only'}.
