@@ -1,9 +1,12 @@
 /**
- * The tracked net worth history series — README.md → "Net Worth Tracking": "Net worth chart:
- * tracked line + realistic/optimistic/pessimistic forecast lines with shaded confidence band"
- * (issue #67). This module owns the *tracked* half only: what the user actually recorded. The three
- * forecast lines and their shaded band are issue #81, which plots `forecast.js`'s output alongside
- * this one.
+ * The net worth chart's series — README.md → "Net Worth Tracking": "Net worth chart: tracked line +
+ * realistic/optimistic/pessimistic forecast lines with shaded confidence band" (issues #67 and #81).
+ *
+ * The tracked half (issue #67) is what the user actually recorded. The forecast half (issue #81) is
+ * `forecast.js`'s three scenarios, collapsed to one low/mid/high series per month and given the same
+ * `date` the tracked points carry, so both halves plot against one pair of accessors and one pair of
+ * scales. No projection maths lives here — {@link forecastBandSeries} reshapes what `forecast.js`
+ * already computed and nothing more.
  *
  * Four conventions decide what the numbers mean:
  *
@@ -19,8 +22,8 @@
  *    counts.
  * 3. **A point is shaped like a {@link import('./forecast.js').ForecastPoint}, plus a `Date`.** Same
  *    `month`/`year`/`investments`/`debts`/`net_worth` field names and the same whole-pence rounding,
- *    so #81 can plot the tracked and forecast series against one pair of accessors rather than
- *    translating between two shapes at the chart boundary. The extra `date` is what makes a skipped
+ *    so the tracked and forecast series plot against one pair of accessors rather than being
+ *    translated between two shapes at the chart boundary. The extra `date` is what makes a skipped
  *    month read as a gap: on a time scale an eighteen-month hole is eighteen months of chart width,
  *    where an index-based x would draw it as one step and quietly flatter the user's tracking record.
  * 4. **Every date is UTC midnight on the 1st.** `new Date(year, month - 1, 1)` is local midnight,
@@ -33,6 +36,7 @@
 
 import { addMonths, monthsBetween } from './auto-invest.js';
 import { sumDebtBalances, sumInvestmentValues } from './debt.js';
+import { forecastBand } from './forecast.js';
 import { compareMonthlyEntries } from './model.js';
 
 /*
@@ -125,30 +129,127 @@ export function netWorthSeries(entries) {
 }
 
 /* -------------------------------------------------------------------------- */
+/* The forecast band                                                           */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * One month of the forecast overlay — issue #81's "three scenario lines with a shaded confidence
+ * band between the low/high lines".
+ *
+ * This is `forecast.js`'s {@link import('./forecast.js').ForecastBandPoint} with a `date` on it, and
+ * that is the whole of the difference. The three scenario lines are `low`/`mid`/`high` rather than
+ * three separate series because the shaded band's edges and the outer two lines must be the same
+ * numbers: drawing the fill from one array and the lines from another is how a band ends up half a
+ * pixel out of register with the line that is supposed to bound it.
+ *
+ * @typedef {object} ForecastBandSeriesPoint
+ * @property {number} offset Whole months since the anchor. `0` is the anchor itself.
+ * @property {number} month Calendar month, 1–12.
+ * @property {number} year Four-digit calendar year.
+ * @property {Date} date Month start, UTC — the x value, the same one a {@link NetWorthPoint} uses.
+ * @property {number} low Lowest projected net worth across the scenarios, normally pessimistic (£).
+ * @property {number} mid Realistic projected net worth (£).
+ * @property {number} high Highest projected net worth, normally optimistic (£).
+ */
+
+/**
+ * The forecast overlay's series: one low/mid/high point per projected month, oldest first.
+ *
+ * `null` in gives `[]` out, because "no forecast" is the ordinary state of this chart — a dashboard
+ * with no snapshots yet has nothing to project from ({@link import('./forecast.js').forecastFromEntries}
+ * returns `null` for it) and every helper below already treats an empty band as "tracked line only".
+ *
+ * Offset 0 is the anchor position, identical in all three scenarios (`forecast.js`'s convention 1),
+ * so when the forecast was built from the recorded history its first point *is* the last tracked
+ * point — same month, same net worth to the penny. That is what joins the tracked line to the
+ * forecast lines without a visible step, and it is why nothing here re-derives an anchor of its own.
+ *
+ * @param {import('./forecast.js').Forecast | null} [forecast]
+ * @returns {ForecastBandSeriesPoint[]} Oldest first.
+ */
+export function forecastBandSeries(forecast) {
+	if (!forecast) return [];
+
+	return forecastBand(forecast).map((point) => ({
+		offset: point.offset,
+		month: point.month,
+		year: point.year,
+		date: monthStartDate(point),
+		low: point.low,
+		mid: point.mid,
+		high: point.high
+	}));
+}
+
+/* -------------------------------------------------------------------------- */
 /* Chart helpers                                                               */
 /* -------------------------------------------------------------------------- */
 
 /**
- * The x domain: first recorded month to last, as UTC month starts.
+ * The first and last calendar month anything on the chart occupies.
+ *
+ * Both series are scanned at both ends rather than assuming the tracked line comes first and the
+ * forecast last. It normally does — a forecast starts at the latest snapshot — but a forecast of
+ * zero months, or one anchored somewhere other than the end of the history, would otherwise produce
+ * a domain that clips a line the chart is still drawing.
+ *
+ * @param {readonly { month: number, year: number }[]} points
+ * @param {readonly { month: number, year: number }[]} band
+ * @returns {{ first: { month: number, year: number }, last: { month: number, year: number } } | null}
+ */
+function chartMonthBounds(points, band) {
+	/** @type {{ month: number, year: number }[]} */
+	const edges = [];
+	for (const series of [points, band]) {
+		const first = series[0];
+		const last = series.at(-1);
+		if (first) edges.push(first);
+		if (last) edges.push(last);
+	}
+	if (edges.length === 0) return null;
+
+	let first = edges[0];
+	let last = edges[0];
+	for (const edge of edges) {
+		if (monthStartDate(edge).getTime() < monthStartDate(first).getTime()) first = edge;
+		if (monthStartDate(edge).getTime() > monthStartDate(last).getTime()) last = edge;
+	}
+	return { first, last };
+}
+
+/**
+ * The x domain covering the tracked history and the forecast overlay together — first month plotted
+ * to last, as UTC month starts.
  *
  * `null` when there is nothing to plot, so a caller can tell "no history" from "a history that
- * happens to be flat". A single point would otherwise give a zero-width domain — a time scale with
+ * happens to be flat". A single month would otherwise give a zero-width domain — a time scale with
  * an empty domain puts every value at the left edge — so it is widened to the month either side,
  * leaving the one point centred.
  *
  * @param {readonly NetWorthPoint[]} points Oldest first, as {@link netWorthSeries} returns.
+ * @param {readonly ForecastBandSeriesPoint[]} [band] As {@link forecastBandSeries} returns.
  * @returns {[Date, Date] | null}
  */
-export function netWorthXDomain(points) {
-	const first = points[0];
-	const last = points.at(-1);
-	if (!first || !last) return null;
+export function netWorthChartXDomain(points, band = []) {
+	const bounds = chartMonthBounds(points, band);
+	if (!bounds) return null;
 
-	if (first.date.getTime() === last.date.getTime()) {
+	const { first, last } = bounds;
+	if (first.month === last.month && first.year === last.year) {
 		return [monthStartDate(addMonths(first, -1)), monthStartDate(addMonths(last, 1))];
 	}
 
-	return [first.date, last.date];
+	return [monthStartDate(first), monthStartDate(last)];
+}
+
+/**
+ * The x domain of the tracked history alone — {@link netWorthChartXDomain} with no overlay.
+ *
+ * @param {readonly NetWorthPoint[]} points Oldest first.
+ * @returns {[Date, Date] | null}
+ */
+export function netWorthXDomain(points) {
+	return netWorthChartXDomain(points, []);
 }
 
 /**
@@ -158,31 +259,17 @@ export function netWorthXDomain(points) {
 export const NET_WORTH_Y_PADDING = 0.05;
 
 /**
- * The y extent: `[low, high]` net worth for the chart's y domain.
+ * `[low, high]` for a set of plotted values, with breathing room added at each end.
  *
- * `includeZero` defaults to **true**, so the axis always spans the zero line. A net worth is an
- * absolute magnitude, not an index — with a zoomed axis a rise from £120,000 to £121,000 draws the
- * same dramatic climb as one from £0 to £121,000, and a net worth that has gone negative doesn't
- * visibly cross anything. The cost is that a long, steadily-growing history looks flatter than a
- * zoomed axis would make it look, which is the honest picture rather than the flattering one. A
- * caller that wants the zoomed view — a later month-on-month change view, say — passes
- * `includeZero: false`.
- *
- * Padding is never applied *through* zero: when zero is an end of the range it stays exactly zero,
- * so the baseline is a real gridline rather than an arbitrary line near the bottom.
- *
- * `null` when there is nothing to plot, matching {@link netWorthXDomain}.
- *
- * @param {readonly NetWorthPoint[]} points
+ * @param {readonly number[]} values
  * @param {{ includeZero?: boolean, padding?: number }} [options]
  * @returns {[number, number] | null}
  */
-export function netWorthYExtent(points, options = {}) {
-	if (points.length === 0) return null;
+function paddedExtent(values, options = {}) {
+	if (values.length === 0) return null;
 
 	const { includeZero = true, padding = NET_WORTH_Y_PADDING } = options;
 
-	const values = points.map((point) => point.net_worth);
 	let low = Math.min(...values);
 	let high = Math.max(...values);
 	if (includeZero) {
@@ -200,32 +287,75 @@ export function netWorthYExtent(points, options = {}) {
 	return lower === upper ? [lower, upper + pad] : [lower, upper];
 }
 
+/**
+ * The y extent: `[low, high]` for the chart's y domain, covering the tracked line and the whole of
+ * the forecast band — the band's `low` and `high` edges, not just its realistic middle, or the
+ * shading would run off the top of the plot in the optimistic scenario.
+ *
+ * `includeZero` defaults to **true**, so the axis always spans the zero line. A net worth is an
+ * absolute magnitude, not an index — with a zoomed axis a rise from £120,000 to £121,000 draws the
+ * same dramatic climb as one from £0 to £121,000, and a net worth that has gone negative doesn't
+ * visibly cross anything. The cost is that a long, steadily-growing history looks flatter than a
+ * zoomed axis would make it look, which is the honest picture rather than the flattering one. A
+ * caller that wants the zoomed view — a later month-on-month change view, say — passes
+ * `includeZero: false`.
+ *
+ * Padding is never applied *through* zero: when zero is an end of the range it stays exactly zero,
+ * so the baseline is a real gridline rather than an arbitrary line near the bottom.
+ *
+ * `null` when there is nothing to plot, matching {@link netWorthChartXDomain}.
+ *
+ * @param {readonly NetWorthPoint[]} points
+ * @param {readonly ForecastBandSeriesPoint[]} [band]
+ * @param {{ includeZero?: boolean, padding?: number }} [options]
+ * @returns {[number, number] | null}
+ */
+export function netWorthChartYExtent(points, band = [], options = {}) {
+	const values = points.map((point) => point.net_worth);
+	for (const point of band) values.push(point.low, point.high);
+
+	return paddedExtent(values, options);
+}
+
+/**
+ * The y extent of the tracked history alone — {@link netWorthChartYExtent} with no overlay.
+ *
+ * @param {readonly NetWorthPoint[]} points
+ * @param {{ includeZero?: boolean, padding?: number }} [options]
+ * @returns {[number, number] | null}
+ */
+export function netWorthYExtent(points, options = {}) {
+	return netWorthChartYExtent(points, [], options);
+}
+
 /** How many labels the month axis aims for before it starts thinning them out. */
 export const MONTH_TICK_TARGET = 6;
 
 /**
- * Month-start dates to label the x axis with.
+ * Month-start dates to label the x axis with, spanning the tracked history and the forecast overlay
+ * together.
  *
  * Ticks step evenly through the *calendar*, not through the points, so an eighteen-month gap gets
  * eighteen months of labelled axis rather than one — the same reason the x value is a date at all
- * (convention 3). The first and last recorded months are always labelled: they are the two a reader
- * looks for, and an unlabelled final month makes "how recent is this?" unanswerable. A trailing tick
- * closer than half a step to the last month is replaced by it rather than crowding beside it.
+ * (convention 3). The first and last months plotted are always labelled: they are the two a reader
+ * looks for, and an unlabelled final month makes "how far does this run?" unanswerable. A trailing
+ * tick closer than half a step to the last month is replaced by it rather than crowding beside it.
  *
  * Supplying ticks explicitly also keeps the axis off d3's own time-tick generator, which would pick
  * boundaries in the *local* zone and, west of Greenwich, label them a month early (convention 4).
  *
  * @param {readonly NetWorthPoint[]} points Oldest first.
+ * @param {readonly ForecastBandSeriesPoint[]} [band] Oldest first.
  * @param {{ max?: number }} [options] Most labels to place. Two or more; anything less is read as 2.
  * @returns {Date[]} Oldest first.
  */
-export function netWorthMonthTicks(points, options = {}) {
-	const first = points[0];
-	const last = points.at(-1);
-	if (!first || !last) return [];
+export function netWorthChartMonthTicks(points, band = [], options = {}) {
+	const bounds = chartMonthBounds(points, band);
+	if (!bounds) return [];
 
+	const { first, last } = bounds;
 	const span = monthsBetween(first, last);
-	if (span <= 0) return [first.date];
+	if (span <= 0) return [monthStartDate(first)];
 
 	const max = Math.max(2, Math.trunc(options.max ?? MONTH_TICK_TARGET));
 	const step = Math.max(1, Math.ceil(span / (max - 1)));
@@ -241,4 +371,15 @@ export function netWorthMonthTicks(points, options = {}) {
 	}
 
 	return offsets.map((offset) => monthStartDate(addMonths(first, offset)));
+}
+
+/**
+ * Axis labels for the tracked history alone — {@link netWorthChartMonthTicks} with no overlay.
+ *
+ * @param {readonly NetWorthPoint[]} points Oldest first.
+ * @param {{ max?: number }} [options]
+ * @returns {Date[]} Oldest first.
+ */
+export function netWorthMonthTicks(points, options = {}) {
+	return netWorthChartMonthTicks(points, [], options);
 }

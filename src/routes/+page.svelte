@@ -24,11 +24,17 @@
 	let monthlyEntries = $state([]);
 	let ready = $state(false);
 
+	// Read-only here, and read from the store rather than typed in: the net worth chart's forecast
+	// overlay (#81) projects at the user's own growth assumption, which lives on `Profile`. Nothing
+	// on this page writes it back — the forecast tab's sliders are where an assumption gets changed.
+	let growthRate = $state(5);
+
 	onMount(async () => {
 		await hydrateAppData();
 		const data = get(appData);
 		activityLog = data.activity_log;
 		monthlyEntries = data.monthly_entries;
+		growthRate = data.profile.growth_rate;
 		ready = true;
 	});
 
@@ -46,10 +52,10 @@
 <h1>Net Worth</h1>
 <p>Personal UK net worth, tax and retirement planning app. Not financial advice.</p>
 <p>
-	Your recorded net worth history is charted below. The three forecast lines and their confidence
-	band, and the chart's hover/marker layer, land in later builds. Monthly snapshot entry for
-	investment holdings, debt tracking, the debt-to-investment ratio, the auto-invest fill for skipped
-	months and the activity log are below it.
+	Your recorded net worth history is charted below, with the three forecast scenarios and their
+	confidence band projected on from your latest snapshot. The chart's hover/marker layer lands in a
+	later build. Monthly snapshot entry for investment holdings, debt tracking, the debt-to-investment
+	ratio, the auto-invest fill for skipped months and the activity log are below it.
 </p>
 <p class="text-sm text-muted-foreground">
 	{getPersistenceMode() === 'gist' ? 'Synced to your GitHub Gist' : 'Saved to this browser only'}.
@@ -58,7 +64,7 @@
 </p>
 
 <div class="mt-6 flex max-w-2xl flex-col gap-6">
-	<NetWorthChart {monthlyEntries} />
+	<NetWorthChart {monthlyEntries} {growthRate} />
 	<InvestmentHoldings bind:monthlyEntries bind:activityLog />
 	<DebtTracker bind:monthlyEntries bind:activityLog />
 	<AutoInvestFill bind:monthlyEntries growthRate={5} />

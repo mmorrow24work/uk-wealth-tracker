@@ -1,10 +1,14 @@
 import { describe, expect, it } from 'vitest';
 
 import { createDebt, createInvestment, createMonthlyEntry } from './model.js';
-import { projectScenario } from './forecast.js';
+import { forecastFromEntries, forecastScenarios, projectScenario } from './forecast.js';
 import {
 	MONTH_TICK_TARGET,
+	forecastBandSeries,
 	monthStartDate,
+	netWorthChartMonthTicks,
+	netWorthChartXDomain,
+	netWorthChartYExtent,
 	netWorthMonthTicks,
 	netWorthPoint,
 	netWorthSeries,
@@ -359,5 +363,256 @@ describe('netWorthMonthTicks', () => {
 			expect(ticks.at(-1)?.getTime()).toBe(points.at(-1)?.date.getTime());
 			expect(ticks.at(0)?.getTime()).toBe(points[0].date.getTime());
 		}
+	});
+});
+
+describe('forecastBandSeries', () => {
+	/**
+	 * A recorded history whose holding actually grows, so a forecast projected from it separates the
+	 * three scenarios rather than drawing one flat line three times.
+	 *
+	 * @param {number} months How many months to record.
+	 * @returns {import('./types.js').MonthlyEntry[]}
+	 */
+	function growingHistory(months = 3) {
+		return Array.from({ length: months }, (_, index) =>
+			createMonthlyEntry({
+				month: index + 1,
+				year: 2026,
+				investments: [
+					createInvestment({ value: 100_000 + index * 1_000, monthly_contribution: 500 })
+				]
+			})
+		);
+	}
+
+	it('is empty when there is no forecast to plot', () => {
+		expect(forecastBandSeries(null)).toEqual([]);
+		expect(forecastBandSeries()).toEqual([]);
+	});
+
+	it('returns the anchor plus one point per projected month', () => {
+		const forecast = forecastFromEntries(growingHistory(), { months: 12 });
+
+		expect(forecastBandSeries(forecast)).toHaveLength(13);
+	});
+
+	it('starts exactly where the tracked line ends, to the penny', () => {
+		// The join #67 and #81 both exist to keep seamless: offset 0 of every scenario is the anchor
+		// position itself, which is the latest recorded month. A disagreement here draws a visible
+		// step where the tracked line meets the forecast.
+		const entries = growingHistory(4);
+		const points = netWorthSeries(entries);
+		const band = forecastBandSeries(forecastFromEntries(entries, { months: 6 }));
+		const latest = points.at(-1);
+
+		expect(band[0].date.getTime()).toBe(latest?.date.getTime());
+		expect(band[0].low).toBe(latest?.net_worth);
+		expect(band[0].mid).toBe(latest?.net_worth);
+		expect(band[0].high).toBe(latest?.net_worth);
+	});
+
+	it('dates every month as a UTC month start, one month apart', () => {
+		const band = forecastBandSeries(
+			forecastScenarios({
+				investments: [createInvestment({ value: 1_000 })],
+				start: { month: 11, year: 2026 },
+				months: 3
+			})
+		);
+
+		expect(band.map((point) => point.date.toISOString().slice(0, 10))).toEqual([
+			'2026-11-01',
+			'2026-12-01',
+			'2027-01-01',
+			'2027-02-01'
+		]);
+	});
+
+	it('carries the offset and calendar month of each projected point', () => {
+		const band = forecastBandSeries(
+			forecastScenarios({
+				investments: [createInvestment({ value: 1_000 })],
+				start: { month: 12, year: 2026 },
+				months: 2
+			})
+		);
+
+		expect(band.map((point) => point.offset)).toEqual([0, 1, 2]);
+		expect(band.map((point) => `${point.year}-${point.month}`)).toEqual([
+			'2026-12',
+			'2027-1',
+			'2027-2'
+		]);
+	});
+
+	it('widens from a single point at the anchor as the scenarios diverge', () => {
+		const band = forecastBandSeries(
+			forecastFromEntries(growingHistory(), { months: 120 }, { growthRate: 5 })
+		);
+
+		expect(band[0].high - band[0].low).toBe(0);
+		for (const point of band) {
+			expect(point.low).toBeLessThanOrEqual(point.mid);
+			expect(point.mid).toBeLessThanOrEqual(point.high);
+		}
+		const final = band.at(-1);
+		expect((final?.high ?? 0) - (final?.low ?? 0)).toBeGreaterThan(0);
+	});
+
+	it('reads low/mid/high straight off the three scenarios', () => {
+		const forecast = forecastScenarios(
+			{
+				investments: [createInvestment({ value: 50_000, monthly_contribution: 250 })],
+				debts: [createDebt({ balance: 5_000 })],
+				start: { month: 1, year: 2026 },
+				months: 24
+			},
+			{ growthRate: 6 }
+		);
+		const band = forecastBandSeries(forecast);
+		const last = band.length - 1;
+
+		expect(band[last].low).toBe(forecast.series.pessimistic[last].net_worth);
+		expect(band[last].mid).toBe(forecast.series.realistic[last].net_worth);
+		expect(band[last].high).toBe(forecast.series.optimistic[last].net_worth);
+	});
+});
+
+describe('netWorthChartXDomain', () => {
+	/** @param {number} months @returns {import('./forecast.js').Forecast} */
+	const forecastFrom = (months) =>
+		forecastScenarios({
+			investments: [createInvestment({ value: 10_000 })],
+			start: { month: 3, year: 2026 },
+			months
+		});
+
+	it('runs from the first recorded month to the last forecast month', () => {
+		const points = netWorthSeries([entry(1, 2026), entry(2, 2026), entry(3, 2026)]);
+		const domain = netWorthChartXDomain(points, forecastBandSeries(forecastFrom(24)));
+
+		expect(domain?.[0].toISOString().slice(0, 10)).toBe('2026-01-01');
+		expect(domain?.[1].toISOString().slice(0, 10)).toBe('2028-03-01');
+	});
+
+	it('is the tracked range when there is no forecast', () => {
+		const points = netWorthSeries([entry(1, 2026), entry(3, 2026)]);
+
+		expect(netWorthChartXDomain(points, [])).toEqual(netWorthXDomain(points));
+	});
+
+	it('plots a single snapshot without widening once a forecast runs from it', () => {
+		const points = netWorthSeries([entry(3, 2026)]);
+		const domain = netWorthChartXDomain(points, forecastBandSeries(forecastFrom(12)));
+
+		expect(domain?.[0].toISOString().slice(0, 10)).toBe('2026-03-01');
+		expect(domain?.[1].toISOString().slice(0, 10)).toBe('2027-03-01');
+	});
+
+	it('widens when the forecast has no months in it either', () => {
+		const points = netWorthSeries([entry(3, 2026)]);
+		const domain = netWorthChartXDomain(points, forecastBandSeries(forecastFrom(0)));
+
+		expect(domain?.[0].toISOString().slice(0, 10)).toBe('2026-02-01');
+		expect(domain?.[1].toISOString().slice(0, 10)).toBe('2026-04-01');
+	});
+
+	it('is null when there is nothing to plot at all', () => {
+		expect(netWorthChartXDomain([], [])).toBeNull();
+	});
+});
+
+describe('netWorthChartYExtent', () => {
+	it('reaches the top of the band, not just the top of the history', () => {
+		const entries = [
+			createMonthlyEntry({
+				month: 1,
+				year: 2026,
+				investments: [createInvestment({ value: 100_000, monthly_contribution: 1_000 })]
+			})
+		];
+		const band = forecastBandSeries(forecastFromEntries(entries, { months: 240 }));
+		const points = netWorthSeries(entries);
+		const extent = netWorthChartYExtent(points, band);
+		const highest = Math.max(...band.map((point) => point.high));
+
+		expect(highest).toBeGreaterThan(100_000);
+		expect(extent?.[1]).toBeGreaterThanOrEqual(highest);
+		expect(netWorthYExtent(points)?.[1]).toBeLessThan(highest);
+	});
+
+	it('reaches the bottom of the band when the forecast is under water', () => {
+		const entries = [
+			createMonthlyEntry({
+				month: 1,
+				year: 2026,
+				investments: [createInvestment({ value: 10_000 })],
+				debts: [createDebt({ balance: 60_000 })]
+			})
+		];
+		const band = forecastBandSeries(
+			forecastFromEntries(entries, { months: 60 }, { growthRate: -5 })
+		);
+		const extent = netWorthChartYExtent(netWorthSeries(entries), band);
+		const lowest = Math.min(...band.map((point) => point.low));
+
+		expect(lowest).toBeLessThan(-50_000);
+		expect(extent?.[0]).toBeLessThanOrEqual(lowest);
+	});
+
+	it('matches the tracked-only extent when there is no forecast', () => {
+		const points = netWorthSeries([entry(1, 2026, { investments: [50_000] })]);
+
+		expect(netWorthChartYExtent(points, [])).toEqual(netWorthYExtent(points));
+	});
+
+	it('plots a forecast even with no recorded history behind it', () => {
+		const band = forecastBandSeries(
+			forecastScenarios({
+				investments: [createInvestment({ value: 20_000 })],
+				start: { month: 1, year: 2026 },
+				months: 12
+			})
+		);
+
+		expect(netWorthChartYExtent([], band)?.[1]).toBeGreaterThan(20_000);
+	});
+
+	it('is null when neither series has anything in it', () => {
+		expect(netWorthChartYExtent([], [])).toBeNull();
+	});
+});
+
+describe('netWorthChartMonthTicks', () => {
+	/** @param {Date[]} ticks @returns {string[]} */
+	const labels = (ticks) => ticks.map((tick) => tick.toISOString().slice(0, 7));
+
+	it('labels the whole span, history and forecast together', () => {
+		const points = netWorthSeries([entry(1, 2026), entry(2, 2026), entry(3, 2026)]);
+		const band = forecastBandSeries(
+			forecastScenarios({
+				investments: [createInvestment({ value: 1_000 })],
+				start: { month: 3, year: 2026 },
+				months: 120
+			})
+		);
+		const ticks = netWorthChartMonthTicks(points, band);
+
+		expect(labels(ticks).at(0)).toBe('2026-01');
+		expect(labels(ticks).at(-1)).toBe('2036-03');
+		expect(ticks.length).toBeLessThanOrEqual(MONTH_TICK_TARGET + 1);
+	});
+
+	it('matches the tracked-only ticks when there is no forecast', () => {
+		const points = netWorthSeries([entry(1, 2025), entry(7, 2026)]);
+
+		expect(netWorthChartMonthTicks(points, [], { max: 4 })).toEqual(
+			netWorthMonthTicks(points, { max: 4 })
+		);
+	});
+
+	it('is empty when there is nothing to plot', () => {
+		expect(netWorthChartMonthTicks([], [])).toEqual([]);
 	});
 });

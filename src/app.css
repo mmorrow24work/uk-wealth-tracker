@@ -24,10 +24,17 @@
 	   `hsl(var(--chart-1))`. Series colours are their own scale rather than reuses of `--primary`
 	   or `--accent`: a chart's job is to keep several series apart from each other and from the
 	   surface they sit on, which the UI chrome tokens (near-black on near-white) were never chosen
-	   for. `--chart-1` is the first slot of a categorical palette; #81 adds the forecast lines and
-	   the confidence band on further slots. Light `#2a78d6` / dark `#3987e5` — both clear 3:1
-	   against their own surface and sit inside their mode's lightness band. */
+	   for. `--chart-1` is the first slot of a categorical palette, `--chart-2` the second. Light
+	   `#2a78d6`/`#eb6834`, dark `#3987e5`/`#d95926` — every one clears 3:1 against its own surface,
+	   sits inside its mode's lightness band, and the pair clears the colour-vision-deficiency
+	   separation floor in both modes (worst ΔE 24.9 light / 26.8 dark, ≥8 needed).
+
+	   The two slots are *tracked* and *forecast*, not one per line: the three forecast scenarios are
+	   one projection under three assumptions, so they share `--chart-2` — the realistic line solid
+	   in it, the outer two dashed, the confidence band the same hue at low alpha — rather than
+	   spending two more categorical slots implying three unrelated series (#81). */
 	--chart-1: 213 68% 50%;
+	--chart-2: 17 82% 56%;
 }
 
 .dark {
@@ -51,9 +58,10 @@
 	--secondary-foreground: 0 0% 98.2%;
 	--ring: 0 0% 83.1%;
 
-	/* Stepped for the dark surface, not flipped from the light value — the same hue, lifted until
-	   it clears 3:1 against a near-black background. */
+	/* Stepped for the dark surface, not flipped from the light value — the same hues, re-stepped
+	   until each clears 3:1 against a near-black background. */
 	--chart-1: 213 77% 56%;
+	--chart-2: 17 70% 50%;
 }
 
 @tailwind base;
