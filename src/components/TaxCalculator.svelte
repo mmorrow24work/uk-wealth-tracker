@@ -15,8 +15,14 @@
 	 *
 	 * "Take-home" here is gross less *income tax* only. National Insurance is not modelled (it
 	 * appears nowhere in README.md's spec and has no issue in the tax milestone), and student loans
-	 * (#26), salary sacrifice (#27), HICBC (#24) and Marriage Allowance (#25) are their own issues —
-	 * so every figure is labelled for what it is rather than presented as net pay.
+	 * (#26), salary sacrifice (#27) and Marriage Allowance (#25) are their own issues — so every
+	 * figure is labelled for what it is rather than presented as net pay.
+	 *
+	 * The High Income Child Benefit Charge (#24) is rendered here as a second card rather than on the
+	 * page beside this one, because it is assessed on the *same* adjusted net income: giving it its
+	 * own salary field would let the tab hold two answers to one question. `ChildBenefitCharge`
+	 * therefore takes the income and region as props and owns only what `tax.js` cannot know — how
+	 * many children are claimed for, whether the payments are taken, and what a partner earns.
 	 */
 	import { TAX_REGION_LABELS, TAX_REGIONS } from '$lib/enums.js';
 	import { createProfile } from '$lib/model.js';
@@ -29,6 +35,7 @@
 		takeHomeBreakdown
 	} from '$lib/tax.js';
 	import Card from './ui/card.svelte';
+	import ChildBenefitCharge from './ChildBenefitCharge.svelte';
 
 	/** @type {{ profile?: import('$lib/types.js').Profile }} */
 	let { profile = createProfile() } = $props();
@@ -301,9 +308,13 @@
 			Illustrative only, not financial advice. {TAX_YEAR} figures, from HMRC's published rates and allowances.
 			This is income tax on earnings alone: National Insurance is not deducted, and neither are student
 			loan repayments (#26), salary sacrifice or pension contributions (#27) — so "after income tax" is
-			not your net pay. The High Income Child Benefit Charge (#24), Marriage Allowance (#25), savings
-			and dividend income each land on their own issues. Enter income already net of any salary sacrifice
-			if you want the allowance taper assessed correctly.
+			not your net pay. The High Income Child Benefit Charge is in the card below; Marriage Allowance
+			(#25), savings and dividend income each land on their own issues. Enter income already net of any
+			salary sacrifice if you want the allowance taper assessed correctly.
 		</p>
 	{/if}
 </Card>
+
+{#if incomeIsValid}
+	<ChildBenefitCharge income={parsedIncome} {region} />
+{/if}
