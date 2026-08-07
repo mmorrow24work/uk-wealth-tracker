@@ -55,16 +55,66 @@ describe('transformNetWorthData', () => {
 				id: '1',
 				month: 1,
 				year: 2024,
-				investments: [{ id: '1', name: 'Test', type: 'shares', wrapper: 'isa_stocks_shares', value: 10000, bought_for: null, year_purchased: null, monthly_contribution: 0, contribution_frequency: 'monthly', fund_fee: 0, notes: '', exclude_from_net_worth: false, ownership_pct: 100 }],
-				debts: [{ id: '1', name: 'Test', type: 'credit_card', balance: 1000, notes: '', exclude_from_net_worth: false }],
+				investments: [
+					{
+						id: '1',
+						name: 'Test',
+						type: 'shares',
+						wrapper: 'isa_stocks_shares',
+						value: 10000,
+						bought_for: null,
+						year_purchased: null,
+						monthly_contribution: 0,
+						contribution_frequency: 'monthly',
+						fund_fee: 0,
+						notes: '',
+						exclude_from_net_worth: false,
+						ownership_pct: 100
+					}
+				],
+				debts: [
+					{
+						id: '1',
+						name: 'Test',
+						type: 'credit_card',
+						balance: 1000,
+						notes: '',
+						exclude_from_net_worth: false
+					}
+				],
 				auto_filled: false
 			},
 			{
 				id: '2',
 				month: 2,
 				year: 2024,
-				investments: [{ id: '1', name: 'Test', type: 'shares', wrapper: 'isa_stocks_shares', value: 11000, bought_for: null, year_purchased: null, monthly_contribution: 0, contribution_frequency: 'monthly', fund_fee: 0, notes: '', exclude_from_net_worth: false, ownership_pct: 100 }],
-				debts: [{ id: '1', name: 'Test', type: 'credit_card', balance: 900, notes: '', exclude_from_net_worth: false }],
+				investments: [
+					{
+						id: '1',
+						name: 'Test',
+						type: 'shares',
+						wrapper: 'isa_stocks_shares',
+						value: 11000,
+						bought_for: null,
+						year_purchased: null,
+						monthly_contribution: 0,
+						contribution_frequency: 'monthly',
+						fund_fee: 0,
+						notes: '',
+						exclude_from_net_worth: false,
+						ownership_pct: 100
+					}
+				],
+				debts: [
+					{
+						id: '1',
+						name: 'Test',
+						type: 'credit_card',
+						balance: 900,
+						notes: '',
+						exclude_from_net_worth: false
+					}
+				],
 				auto_filled: false
 			}
 		];

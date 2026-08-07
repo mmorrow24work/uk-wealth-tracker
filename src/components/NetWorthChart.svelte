@@ -13,7 +13,11 @@
 
 	let data = $derived(transformNetWorthData(monthlyEntries));
 
-	let dimensions = $state({ width: 800, height: 400, margin: { top: 20, right: 20, bottom: 20, left: 60 } });
+	let dimensions = $state({
+		width: 800,
+		height: 400,
+		margin: { top: 20, right: 20, bottom: 20, left: 60 }
+	});
 
 	let innerWidth = $derived(dimensions.width - dimensions.margin.left - dimensions.margin.right);
 	let innerHeight = $derived(dimensions.height - dimensions.margin.top - dimensions.margin.bottom);
@@ -48,7 +52,7 @@
 		<rect width={dimensions.width} height={dimensions.height} fill="white" />
 
 		<!-- Grid lines (horizontal) -->
-		{#each yScale.ticks(5) as tick}
+		{#each yScale.ticks(5) as tick (tick)}
 			<line
 				x1={dimensions.margin.left}
 				x2={dimensions.width - dimensions.margin.right}
@@ -70,7 +74,7 @@
 		/>
 
 		<!-- Y-axis labels -->
-		{#each yScale.ticks(5) as tick}
+		{#each yScale.ticks(5) as tick (tick)}
 			<text
 				x={dimensions.margin.left - 8}
 				y={yScale(tick)}
@@ -93,7 +97,7 @@
 		/>
 
 		<!-- X-axis labels -->
-		{#each xScale.ticks(6) as tick}
+		{#each xScale.ticks(6) as tick (tick)}
 			{@const xPos = xScale(tick)}
 			{@const date = new Date(tick)}
 			{@const label = date.toLocaleDateString('en-GB', { month: 'short', year: '2-digit' })}
@@ -113,7 +117,7 @@
 				<path d={linePath} stroke="#0066cc" stroke-width="2" fill="none" />
 
 				<!-- Data points -->
-				{#each data as point}
+				{#each data as point (point.date.getTime())}
 					<circle
 						cx={xScale(point.date) - dimensions.margin.left}
 						cy={yScale(point.netWorth) - dimensions.margin.top}
@@ -128,6 +132,9 @@
 
 <style>
 	:global(svg) {
-		font-family: system-ui, -apple-system, sans-serif;
+		font-family:
+			system-ui,
+			-apple-system,
+			sans-serif;
 	}
 </style>
