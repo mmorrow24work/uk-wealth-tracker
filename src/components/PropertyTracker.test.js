@@ -196,4 +196,85 @@ describe('PropertyTracker', () => {
 		}).body;
 		expect(excluded).not.toMatch(/<input type="checkbox"[^>]*checked[^>]*\/>/);
 	});
+
+	/* ---------------------------------------------------------------------- */
+	/* Deal expiry reminder (#38)                                              */
+	/* ---------------------------------------------------------------------- */
+
+	const now = new Date('2026-08-07T12:00:00.000Z');
+
+	it('shows a red reminder for an expired deal', () => {
+		const body = text({
+			now,
+			properties: [
+				createProperty({ name: '12 Oak Avenue', value: 300_000, deal_expiry: '2026-01-01' })
+			]
+		});
+		expect(body).toContain('mortgage deal expired 218 days ago');
+	});
+
+	it('shows an amber reminder for a deal expiring within 90 days', () => {
+		const body = text({
+			now,
+			properties: [
+				createProperty({ name: '12 Oak Avenue', value: 300_000, deal_expiry: '2026-09-01' })
+			]
+		});
+		expect(body).toContain('mortgage deal expires in 25 days');
+	});
+
+	it('shows no reminder for a deal expiring well outside the warning window', () => {
+		const body = text({
+			now,
+			properties: [
+				createProperty({ name: '12 Oak Avenue', value: 300_000, deal_expiry: '2027-06-30' })
+			]
+		});
+		expect(body).not.toContain('mortgage deal expire');
+	});
+
+	it('shows no reminder when there is no deal expiry recorded', () => {
+		const body = text({
+			now,
+			properties: [
+				createProperty({ name: 'Paid-off house', value: 250_000, mortgage_type: 'none' })
+			]
+		});
+		expect(body).not.toContain('mortgage deal expire');
+	});
+
+	/* ---------------------------------------------------------------------- */
+	/* Equity growth projection chart (#38)                                    */
+	/* ---------------------------------------------------------------------- */
+
+	it('lists the growth rate field in the form', () => {
+		const body = text();
+		expect(body).toContain('Assumed annual growth (%)');
+	});
+
+	it('shows a property picker and the projection chart once a property exists', () => {
+		const body = text({
+			properties: [createProperty({ name: '12 Oak Avenue', value: 300_000, growth_rate: 4 })]
+		});
+		expect(body).toContain('Equity growth projection for');
+		expect(body).toContain('12 Oak Avenue — equity projection');
+	});
+
+	it('shows no projection chart when there are no properties', () => {
+		const body = text();
+		expect(body).not.toContain('Equity growth projection for');
+	});
+
+	it('offers every recorded property in the projection chart picker', () => {
+		const { body } = render(PropertyTracker, {
+			props: {
+				properties: [
+					createProperty({ name: 'Property A', value: 100_000 }),
+					createProperty({ name: 'Property B', value: 200_000 })
+				]
+			}
+		});
+		expect(body).toMatch(/<option value="[^"]+">Property A<\/option>/);
+		expect(body).toMatch(/<option value="[^"]+">Property B<\/option>/);
+	});
 });

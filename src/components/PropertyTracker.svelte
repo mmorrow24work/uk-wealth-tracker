@@ -32,8 +32,18 @@
 	 * same "don't show a computed line for data that isn't there" rule already applied to
 	 * `monthly_payment`/`deal_expiry` below.
 	 *
-	 * Deliberately still out of scope, left to #38: the deal expiry amber/red reminder and the
-	 * equity growth projection chart (`growth_rate` sits on the record unused by this component).
+	 * #38 extends this with the two pieces left out above: a deal expiry reminder — amber inside
+	 * `DEAL_EXPIRY_WARNING_DAYS` (90) of `deal_expiry`, red once it has passed, read per-row off
+	 * `$lib/property.js`'s {@link dealExpiryStatus} — and a per-property 30-year equity growth
+	 * projection chart, `PropertyEquityChart.svelte`, chosen from a select beneath the list (a
+	 * single chart rather than one per property, the same reasoning `NetWorthChart` gives for one
+	 * dashboard chart rather than one per holding: thirty properties would mean thirty charts on
+	 * screen at once for one that is ever being looked at).
+	 *
+	 * `now` is a prop, not read from the clock inside this component, purely so a server-rendered
+	 * test can assert a specific amber/red boundary without the answer changing depending on what
+	 * day the test happens to run — `dealExpiryStatus` itself takes the same parameter for the same
+	 * reason.
 	 *
 	 * No activity log: `$lib/enums.js`'s `ACTIVITY_LOG_ENTITY_TYPES` covers `investment`/`debt` only
 	 * (issue #14's own scope), and properties were never in it — same as pensions and dividends.
@@ -46,6 +56,7 @@
 	} from '$lib/enums.js';
 	import { createProperty } from '$lib/model.js';
 	import {
+		dealExpiryStatus,
 		propertyCashflow,
 		propertyEquity,
 		propertyGrossYield,
@@ -53,11 +64,12 @@
 	} from '$lib/property.js';
 	import Card from './ui/card.svelte';
 	import Button from './ui/button.svelte';
+	import PropertyEquityChart from './PropertyEquityChart.svelte';
 
 	/**
-	 * @type {{ properties?: import('$lib/types.js').Property[] }}
+	 * @type {{ properties?: import('$lib/types.js').Property[], now?: Date }}
 	 */
-	let { properties = $bindable([]) } = $props();
+	let { properties = $bindable([]), now = new Date() } = $props();
 
 	const currencyFormatter = new Intl.NumberFormat('en-GB', {
 		style: 'currency',
@@ -86,6 +98,7 @@
 	let dealExpiry = $state('');
 	let rentalIncome = $state('');
 	let runningCosts = $state('');
+	let growthRate = $state('3');
 
 	function resetForm() {
 		editingId = null;
@@ -99,6 +112,7 @@
 		dealExpiry = '';
 		rentalIncome = '';
 		runningCosts = '';
+		growthRate = '3';
 	}
 
 	function formFields() {
@@ -112,7 +126,8 @@
 			mortgage_type: mortgageType,
 			deal_expiry: dealExpiry === '' ? null : dealExpiry,
 			rental_income: Number(rentalIncome) || 0,
-			running_costs: Number(runningCosts) || 0
+			running_costs: Number(runningCosts) || 0,
+			growth_rate: Number(growthRate) || 0
 		};
 	}
 
@@ -129,6 +144,7 @@
 		dealExpiry = property.deal_expiry ?? '';
 		rentalIncome = String(property.rental_income);
 		runningCosts = String(property.running_costs);
+		growthRate = String(property.growth_rate);
 	}
 
 	function addProperty() {
@@ -169,6 +185,55 @@
 			p.id === id ? { ...p, include_in_net_worth: !p.include_in_net_worth } : p
 		);
 	}
+
+	/**
+	 * Words + an inline colour for a deal expiry reminder — amber inside the warning window, red
+	 * once expired. Colour is given inline as well as by class for the same reason `NetWorthChart`'s
+	 * legend swatches are: `app.css` still ships Tailwind v3's `@tailwind` directives under
+	 * Tailwind v4, so most utility classes never reach the page, and the one thing this feature
+	 * cannot afford is a warning that silently renders in the body text colour.
+	 *
+	 * @param {import('$lib/property.js').DealExpiryStatus} deal
+	 * @returns {{ text: string, color: string } | null}
+	 */
+	function dealExpiryReminder(deal) {
+		if (deal.status === 'red') {
+			return {
+				text: `mortgage deal expired ${Math.abs(deal.daysRemaining ?? 0)} days ago`,
+				color: 'hsl(var(--destructive))'
+			};
+		}
+		if (deal.status === 'amber') {
+			return {
+				text:
+					deal.daysRemaining === 0
+						? 'mortgage deal expires today'
+						: `mortgage deal expires in ${deal.daysRemaining} days`,
+				color: '#b45309'
+			};
+		}
+		return null;
+	}
+
+	/** @type {string | null} */
+	let chartPropertyId = $state(null);
+
+	// Keeps the select's bound value pointed at a real property: defaults to the first one once any
+	// exist, and re-points itself if the one it was showing gets removed — the same "fall back to
+	// the first item" a `<select>` does natively, made to also update the state that drives it.
+	$effect(() => {
+		if (properties.length === 0) {
+			chartPropertyId = null;
+			return;
+		}
+		if (!properties.some((p) => p.id === chartPropertyId)) {
+			chartPropertyId = properties[0].id;
+		}
+	});
+
+	const chartProperty = $derived(
+		properties.find((p) => p.id === chartPropertyId) ?? properties[0] ?? null
+	);
 </script>
 
 <div class="flex flex-col gap-6">
@@ -196,6 +261,8 @@
 				{#each properties as property (property.id)}
 					{@const cashflow = propertyCashflow(property)}
 					{@const grossYield = propertyGrossYield(property)}
+					{@const deal = dealExpiryStatus(property.deal_expiry, now)}
+					{@const reminder = dealExpiryReminder(deal)}
 					<li
 						class="flex items-center justify-between gap-3 border border-border rounded-md px-3 py-2"
 					>
@@ -216,6 +283,15 @@
 									· deal expires {property.deal_expiry}
 								{/if}
 							</span>
+							{#if reminder}
+								<span
+									class="text-xs font-medium"
+									style="color: {reminder.color}"
+									data-deal-status={deal.status}
+								>
+									⚠ {reminder.text}
+								</span>
+							{/if}
 							<span class="text-xs text-muted-foreground">
 								{formatMoney(propertyEquity(property))} equity
 								{#if !property.include_in_net_worth}
@@ -400,6 +476,22 @@
 				/>
 			</div>
 
+			<div class="flex flex-col gap-1">
+				<label class="text-sm font-medium" for="property-growth-rate">
+					Assumed annual growth (%)
+				</label>
+				<input
+					id="property-growth-rate"
+					type="number"
+					min="-100"
+					max="100"
+					step="0.1"
+					bind:value={growthRate}
+					placeholder="3"
+					class="border border-input rounded-md px-2 py-1.5 text-sm w-24"
+				/>
+			</div>
+
 			<Button type="submit" size="sm">{editingId === null ? 'Add property' : 'Save changes'}</Button
 			>
 			{#if editingId !== null}
@@ -407,4 +499,24 @@
 			{/if}
 		</form>
 	</Card>
+
+	{#if properties.length > 0 && chartProperty}
+		<Card className="p-4">
+			<div class="flex flex-wrap items-center gap-2 mb-3">
+				<label class="text-sm font-medium" for="property-chart-select">
+					Equity growth projection for
+				</label>
+				<select
+					id="property-chart-select"
+					bind:value={chartPropertyId}
+					class="border border-input rounded-md px-2 py-1.5 text-sm"
+				>
+					{#each properties as property (property.id)}
+						<option value={property.id}>{property.name || 'Unnamed property'}</option>
+					{/each}
+				</select>
+			</div>
+			<PropertyEquityChart property={chartProperty} />
+		</Card>
+	{/if}
 </div>
