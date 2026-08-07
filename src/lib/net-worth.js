@@ -128,6 +128,22 @@ export function netWorthSeries(entries) {
 	return [...entries].sort(compareMonthlyEntries).map(netWorthPoint);
 }
 
+/**
+ * How many of a plotted series' points were auto-filled rather than recorded by hand — issue #82's
+ * caption under the chart, which names the hollow marker shape in words.
+ *
+ * Counted off the points array {@link netWorthSeries} already produced, not by re-walking
+ * `monthly_entries` and re-checking `auto_filled` there: the caption must describe exactly the
+ * points the chart went on to draw hollow, and the only way it cannot disagree with them is to read
+ * the same array.
+ *
+ * @param {readonly NetWorthPoint[]} points
+ * @returns {number}
+ */
+export function autoFilledPointCount(points) {
+	return points.reduce((count, point) => count + (point.auto_filled ? 1 : 0), 0);
+}
+
 /* -------------------------------------------------------------------------- */
 /* The forecast band                                                           */
 /* -------------------------------------------------------------------------- */

@@ -4,6 +4,7 @@ import { createDebt, createInvestment, createMonthlyEntry } from './model.js';
 import { forecastFromEntries, forecastScenarios, projectScenario } from './forecast.js';
 import {
 	MONTH_TICK_TARGET,
+	autoFilledPointCount,
 	forecastBandSeries,
 	monthStartDate,
 	netWorthChartMonthTicks,
@@ -614,5 +615,37 @@ describe('netWorthChartMonthTicks', () => {
 
 	it('is empty when there is nothing to plot', () => {
 		expect(netWorthChartMonthTicks([], [])).toEqual([]);
+	});
+});
+
+describe('autoFilledPointCount', () => {
+	it('is zero for an empty series', () => {
+		expect(autoFilledPointCount([])).toBe(0);
+	});
+
+	it('is zero when nothing was auto-filled', () => {
+		const points = netWorthSeries([entry(1, 2026), entry(2, 2026)]);
+
+		expect(autoFilledPointCount(points)).toBe(0);
+	});
+
+	it('counts only the points flagged auto_filled, not the whole series', () => {
+		const points = netWorthSeries([
+			entry(1, 2026),
+			entry(2, 2026, { auto_filled: true }),
+			entry(3, 2026, { auto_filled: true }),
+			entry(4, 2026)
+		]);
+
+		expect(autoFilledPointCount(points)).toBe(2);
+	});
+
+	it('counts every point when the whole series was auto-filled', () => {
+		const points = netWorthSeries([
+			entry(1, 2026, { auto_filled: true }),
+			entry(2, 2026, { auto_filled: true })
+		]);
+
+		expect(autoFilledPointCount(points)).toBe(2);
 	});
 });

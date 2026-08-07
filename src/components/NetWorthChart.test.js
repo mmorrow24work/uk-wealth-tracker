@@ -1,13 +1,18 @@
 /**
- * Server-rendered smoke tests for the net worth chart — the tracked line (issue #67) and the
- * forecast confidence band overlaid on it (issue #81).
+ * Server-rendered smoke tests for the net worth chart — the tracked line (issue #67), the forecast
+ * confidence band overlaid on it (issue #81), and the point markers/caption/table fallback on top of
+ * both (issue #82).
  *
  * Same approach and same limits as the other component tests here: `svelte/server`'s `render` gives
  * the component's *initial* markup, which is enough to assert the empty states, the headline figure,
  * the legend and the accessible summary a screen reader is handed. It deliberately does not assert
- * the drawn path — a `<Chart>` measures its container before it scales anything, and a server render
- * has no container to measure, so the plot area is empty by construction there. The maths behind
- * every coordinate is covered directly in `$lib/net-worth.test.js`.
+ * anything inside `<Chart>` — a `<Chart>` measures its container via `ResizeObserver` before it draws
+ * anything, there is no container to measure under `svelte/server` (no DOM, no browser), and `<Chart>`
+ * renders nothing at all until that measurement resolves. That rules out asserting the `Circle`
+ * markers' markup here the way #67/#81 couldn't assert the `Spline`/`Area` paths'; the marker logic is
+ * covered where it can be, in `$lib/net-worth.test.js` (`autoFilledPointCount`) and in a real browser
+ * (see the journal entry). The caption and table fallback below are ordinary markup outside `<Chart>`,
+ * so they render and assert normally here.
  */
 import { render } from 'svelte/server';
 import { describe, expect, it } from 'vitest';
@@ -18,14 +23,15 @@ import NetWorthChart from './NetWorthChart.svelte';
 /**
  * @param {number} month
  * @param {number} year
- * @param {{ investments?: number[], debts?: number[] }} [contents]
+ * @param {{ investments?: number[], debts?: number[], auto_filled?: boolean }} [contents]
  * @returns {import('$lib/types.js').MonthlyEntry}
  */
 function entry(month, year, contents = {}) {
-	const { investments = [], debts = [] } = contents;
+	const { investments = [], debts = [], auto_filled = false } = contents;
 	return createMonthlyEntry({
 		month,
 		year,
+		auto_filled,
 		investments: investments.map((value) => createInvestment({ value })),
 		debts: debts.map((balance) => createDebt({ balance }))
 	});
@@ -230,5 +236,86 @@ describe('NetWorthChart forecast overlay', () => {
 
 		expect(rendered).not.toContain('Show forecast');
 		expect(rendered).not.toContain('Projected from your');
+	});
+});
+
+describe('NetWorthChart auto-filled caption', () => {
+	it('says nothing when no month was auto-filled', () => {
+		const rendered = text({
+			monthlyEntries: [
+				entry(1, 2026, { investments: [10_000] }),
+				entry(2, 2026, { investments: [20_000] })
+			]
+		});
+
+		expect(rendered).not.toContain('auto-filled by the auto-invest projection');
+	});
+
+	it('counts exactly the auto-filled months, singular phrasing for one', () => {
+		const rendered = text({
+			monthlyEntries: [
+				entry(1, 2026, { investments: [10_000] }),
+				entry(2, 2026, { investments: [20_000], auto_filled: true }),
+				entry(3, 2026, { investments: [30_000] })
+			]
+		});
+
+		expect(rendered).toContain('1 of the 3 months shown was auto-filled');
+		expect(rendered).toContain('hollow marker');
+	});
+
+	it('uses plural phrasing for more than one auto-filled month', () => {
+		const rendered = text({
+			monthlyEntries: [
+				entry(1, 2026, { investments: [10_000], auto_filled: true }),
+				entry(2, 2026, { investments: [20_000], auto_filled: true }),
+				entry(3, 2026, { investments: [30_000] })
+			]
+		});
+
+		expect(rendered).toContain('2 of the 3 months shown were auto-filled');
+	});
+});
+
+describe('NetWorthChart table fallback', () => {
+	it('offers no table when there is nothing recorded', () => {
+		const rendered = text({ monthlyEntries: [] });
+
+		expect(rendered).not.toContain('Show as a table');
+	});
+
+	it('lists every recorded month with its figures and auto-filled status', () => {
+		const rendered = text({
+			monthlyEntries: [
+				entry(1, 2026, { investments: [100_000], debts: [10_000] }),
+				entry(2, 2026, { investments: [105_000], debts: [10_000], auto_filled: true })
+			],
+			showForecast: false
+		});
+
+		expect(rendered).toContain('Show as a table');
+		expect(rendered).toContain('Month');
+		expect(rendered).toContain('Investments');
+		expect(rendered).toContain('Debts');
+		expect(rendered).toContain('Net worth');
+		expect(rendered).toContain('Auto-filled');
+		expect(rendered).toContain('Jan 2026');
+		expect(rendered).toContain('£100,000');
+		expect(rendered).toContain('£90,000');
+		expect(rendered).toContain('Feb 2026');
+		expect(rendered).toContain('£95,000');
+		expect(rendered).toContain('Yes');
+		expect(rendered).toContain('No');
+	});
+
+	it('offers the table even for a single recorded month with no plot', () => {
+		const rendered = text({
+			monthlyEntries: [entry(3, 2026, { investments: [12_500] })],
+			showForecast: false
+		});
+
+		expect(rendered).toContain('A line needs two months');
+		expect(rendered).toContain('Show as a table');
+		expect(rendered).toContain('Mar 2026');
 	});
 });
