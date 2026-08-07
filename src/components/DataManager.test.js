@@ -105,6 +105,16 @@ describe('export section', () => {
 	});
 });
 
+describe('XLSX export section', () => {
+	it('offers an Excel export button', () => {
+		expect(text()).toContain('Export data as Excel (.xlsx)');
+	});
+
+	it('makes clear this is read-only, not an Import source', () => {
+		expect(text()).toContain("can't be brought back in via Import");
+	});
+});
+
 describe('import section', () => {
 	it('shows a file picker, not the confirm step, before any file is chosen', () => {
 		const body = markup();
