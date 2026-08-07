@@ -118,6 +118,10 @@ export * from './github-auth.js';
 // either way. See the Settings tab's DataManager component.
 export * from './data-transfer.js';
 
+// XLSX export — a real .xlsx workbook built client-side with SheetJS, read-only (JSON stays the
+// only re-importable format). See the Settings tab's DataManager component.
+export * from './xlsx-export.js';
+
 // Global reactive app state — the shared store every feature tab should read/write against
 // instead of local component state. Hydrates from and syncs (debounced) to persistence.js.
 export * from './store.js';

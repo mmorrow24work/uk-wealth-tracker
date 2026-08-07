@@ -39,6 +39,7 @@
 	},
 	"dependencies": {
 		"layerchart": "^2.1.0",
-		"shadcn-svelte": "^1.5.0"
+		"shadcn-svelte": "^1.5.0",
+		"xlsx": "0.18.5"
 	}
 }
