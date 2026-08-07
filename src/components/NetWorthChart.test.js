@@ -1,7 +1,7 @@
 /**
  * Server-rendered smoke tests for the net worth chart — the tracked line (issue #67), the forecast
- * confidence band overlaid on it (issue #81), and the point markers/caption/table fallback on top of
- * both (issue #82).
+ * confidence band overlaid on it (issue #81), the point markers/caption/table fallback on top of
+ * both (issue #82), and the hover tooltip's wording (issue #87).
  *
  * Same approach and same limits as the other component tests here: `svelte/server`'s `render` gives
  * the component's *initial* markup, which is enough to assert the empty states, the headline figure,
@@ -13,12 +13,18 @@
  * covered where it can be, in `$lib/net-worth.test.js` (`autoFilledPointCount`) and in a real browser
  * (see the journal entry). The caption and table fallback below are ordinary markup outside `<Chart>`,
  * so they render and assert normally here.
+ *
+ * #87's hover tooltip is the same limitation one step further on: a tooltip with no pointer over it
+ * renders as nothing at all, so there is not even an empty element to assert against. Its words are
+ * therefore `netWorthTooltipReading`, a pure function exported from the component's `<script module>`
+ * block, and the last describe block below tests that directly.
  */
 import { render } from 'svelte/server';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { createDebt, createInvestment, createMonthlyEntry } from '$lib/model.js';
-import NetWorthChart from './NetWorthChart.svelte';
+import { netWorthPoint } from '$lib/net-worth.js';
+import NetWorthChart, { netWorthTooltipReading } from './NetWorthChart.svelte';
 
 /**
  * @param {number} month
@@ -317,5 +323,119 @@ describe('NetWorthChart table fallback', () => {
 		expect(rendered).toContain('A line needs two months');
 		expect(rendered).toContain('Show as a table');
 		expect(rendered).toContain('Mar 2026');
+	});
+});
+
+describe('netWorthTooltipReading', () => {
+	/**
+	 * A plotted point, built through `netWorthPoint` rather than as an object literal — the tooltip
+	 * reads whatever the chart plots, so the test should read the same shape the chart is handed.
+	 *
+	 * @param {number} month
+	 * @param {number} year
+	 * @param {{ investments?: number[], debts?: number[], auto_filled?: boolean }} [contents]
+	 * @returns {import('$lib/net-worth.js').NetWorthPoint}
+	 */
+	function point(month, year, contents = {}) {
+		return netWorthPoint(entry(month, year, contents));
+	}
+
+	it('leads with net worth, then what it is made of', () => {
+		// A reading that gave only the difference would make this month look identical to a £5,000
+		// month with no debts at all.
+		const reading = netWorthTooltipReading(
+			point(3, 2026, { investments: [305_000], debts: [300_000] })
+		);
+
+		expect(reading?.heading).toBe('Mar 2026');
+		expect(reading?.rows).toEqual([
+			{ label: 'Net worth', value: '£5,000', color: 'hsl(var(--chart-1))' },
+			{ label: 'Investments', value: '£305,000' },
+			{ label: 'Debts', value: '£300,000' }
+		]);
+	});
+
+	it('gives a swatch only to the row the line actually plots', () => {
+		const rows = netWorthTooltipReading(point(3, 2026, { investments: [1_000] }))?.rows ?? [];
+
+		expect(rows.filter((row) => row.color)).toHaveLength(1);
+		expect(rows[0].color).toBe('hsl(var(--chart-1))');
+	});
+
+	it('names an auto-filled month in words, not just as a hollow marker', () => {
+		const filled = netWorthTooltipReading(
+			point(6, 2026, { investments: [20_000], auto_filled: true })
+		);
+		const recorded = netWorthTooltipReading(point(6, 2026, { investments: [20_000] }));
+
+		expect(filled?.heading).toBe('Jun 2026 · auto-filled');
+		expect(recorded?.heading).toBe('Jun 2026');
+	});
+
+	it('names the month in UTC, not in the reader time zone', async () => {
+		// The trap `$lib/net-worth.js` convention 4 describes: a January month start is UTC midnight
+		// on the 1st, which anywhere west of Greenwich is still the previous December locally. The
+		// formatter is pinned to UTC, so the heading has to read January in every zone — and since
+		// CI runs in UTC, the only way to actually exercise that is to re-import the module under a
+		// negative-offset zone. `Intl` reads `process.env.TZ` when a formatter is constructed, and
+		// this component builds its formatters at module scope, so resetting the registry first is
+		// what makes the re-import pick up the new zone.
+		const original = process.env.TZ;
+		process.env.TZ = 'America/Los_Angeles';
+		vi.resetModules();
+
+		try {
+			expect(
+				new Intl.DateTimeFormat('en-GB', { month: 'short', year: 'numeric' }).format(
+					new Date(Date.UTC(2026, 0, 1))
+				)
+			).toBe('Dec 2025'); // the wrong answer this test exists to rule out
+
+			// Awaited inside the `try`, so the module is evaluated while `TZ` is still the wrong one.
+			const module = await import('./NetWorthChart.svelte');
+
+			expect(module.netWorthTooltipReading(point(1, 2026, { investments: [1_000] }))?.heading).toBe(
+				'Jan 2026'
+			);
+		} finally {
+			process.env.TZ = original;
+			vi.resetModules();
+		}
+	});
+
+	it('reads a zero-debt month as £0 rather than dropping the row', () => {
+		const reading = netWorthTooltipReading(point(4, 2026, { investments: [40_000] }));
+
+		expect(reading?.rows.map((row) => row.value)).toEqual(['£40,000', '£40,000', '£0']);
+	});
+
+	it('reads an underwater month as a negative net worth', () => {
+		const reading = netWorthTooltipReading(
+			point(4, 2026, { investments: [5_000], debts: [12_000] })
+		);
+
+		expect(reading?.rows[0].value).toBe('-£7,000');
+		expect(reading?.rows[2].value).toBe('£12,000');
+	});
+
+	it('says nothing when no month is hovered', () => {
+		expect(netWorthTooltipReading(null)).toBeNull();
+		expect(netWorthTooltipReading(undefined)).toBeNull();
+	});
+
+	it('says nothing rather than £NaN when handed something that is not a recorded month', () => {
+		// The failure the two-`<Chart>` split exists to prevent: a forecast band point has
+		// `low`/`mid`/`high` where this wants `net_worth`. It should not reach here at all — this is
+		// the guard that keeps the symptom out of the UI if it ever does.
+		const bandPoint = /** @type {any} */ ({
+			month: 4,
+			year: 2026,
+			date: new Date(Date.UTC(2026, 3, 1)),
+			low: 1,
+			mid: 2,
+			high: 3
+		});
+
+		expect(netWorthTooltipReading(bandPoint)).toBeNull();
 	});
 });
