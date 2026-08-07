@@ -230,6 +230,8 @@ uk-wealth-tracker/
 │   │   ├── budget/
 │   │   └── estate/
 │   ├── lib/
+│   │   ├── persistence.js        # one load/save API over both storage modes
+│   │   ├── browser-storage.js    # browser-only persistence (IndexedDB + localStorage)
 │   │   ├── gist.js               # GitHub Gist persistence
 │   │   ├── tax.js                # UK tax calculations
 │   │   ├── fire.js               # FIRE / retirement maths
@@ -270,11 +272,13 @@ The app supports two persistence modes:
 
 Both modes speak the same JSON shape, so **Export data as JSON** / **Import data from JSON** works as a manual bridge between them, and as a backup mechanism either way.
 
+**Which mode you get.** A build with no `VITE_GITHUB_TOKEN` compiled in has only browser-only storage — that's the zero-setup default, and nothing ever reaches the network. On a build that *does* carry a token, configuring that token is itself the opt-in, so it starts in Gist sync mode. Either way the choice is remembered per browser and wins over that default whenever the build can honour it: a token-carrying build can be put back into browser-only mode, and a remembered "Gist" choice on a build that no longer has a token quietly falls back to browser-only rather than failing every save. `src/lib/persistence.js` is the single load/save API over both backends — `src/lib/store.js` calls it and never a backend directly. The Settings UI for switching modes is tracked separately (issue #100).
+
 ### Environment Setup (Gist sync mode only)
 
 Gist sync is configured via environment variables in a `.env.local` file. Two variables are available:
 
-- **`VITE_GITHUB_TOKEN`** — A GitHub personal access token with the `gist` scope. Without this, the app uses browser-only storage.
+- **`VITE_GITHUB_TOKEN`** — A GitHub personal access token with the `gist` scope. Without this, browser-only storage is the only mode the app has; with it, the app starts in Gist sync mode.
 - **`VITE_GIST_ID`** — (Optional) An existing private Gist's id where data will be stored. If a token is set but this is left blank, the app creates a new private Gist on first save and caches its id in `localStorage`.
 
 **To enable Gist persistence:**

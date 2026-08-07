@@ -1,18 +1,19 @@
 /**
- * GitHub Gist persistence — the app's only storage layer (see `CLAUDE.md` → Architecture).
+ * GitHub Gist persistence — the opt-in, cross-device half of the storage layer (see `README.md` →
+ * Persistence modes). The default mode is browser-only storage, `./browser-storage.js`;
+ * `./persistence.js` picks between the two and is what `./store.js` actually calls.
  *
  * The whole app state is one `AppData` document (see `./types.js`). This module reads and
  * writes that document as a single JSON file inside a private GitHub Gist, authenticated with a
  * personal access token. Two env vars configure it (see `.env.example`):
  *
- * - `VITE_GITHUB_TOKEN` — a token with the `gist` scope.
+ * - `VITE_GITHUB_TOKEN` — a token with the `gist` scope. Without it this mode does not exist:
+ *   `isGistConfigured()` is false and `./persistence.js` never routes anything here.
  * - `VITE_GIST_ID` — an existing Gist to use. Optional: if a token is set but this isn't, a new
  *   private Gist is created on first save and its id cached in `localStorage` so later sessions
  *   in the same browser reuse it (Vite env vars are build-time, so the app has no other way to
- *   remember an id it generated itself).
- *
- * With no token configured at all (typical local dev without Gist setup), everything falls back
- * to `localStorage` so the app is fully usable without any GitHub setup.
+ *   remember an id it generated itself). That id cache is the only thing this module keeps in the
+ *   browser — storing the *document* locally is `./browser-storage.js`'s job, not this module's.
  *
  * Because `VITE_`-prefixed env vars are inlined into the client bundle, the token is visible to
  * anyone who can read the deployed JS — acceptable here because this is a single-user,
@@ -37,16 +38,13 @@ const GIST_DESCRIPTION = 'uk-wealth-tracker data — managed by the app, safe to
 
 const GITHUB_API = 'https://api.github.com';
 
-/** `localStorage` key for the fallback copy of the document. */
-const LOCAL_DATA_KEY = 'uk-wealth-tracker:data';
-
 /** `localStorage` key caching a Gist id this app created (when `VITE_GIST_ID` isn't set). */
 const LOCAL_GIST_ID_KEY = 'uk-wealth-tracker:gist-id';
 
 /**
  * Raised for anything that goes wrong talking to a *configured* Gist (network failure, bad
- * token, missing Gist, invalid JSON in the file). Never raised for "nothing configured yet" —
- * that is the `localStorage`/create-if-missing path, not an error.
+ * token, missing Gist, invalid JSON in the file). Never raised for "no Gist created yet" — that is
+ * the create-if-missing path, not an error.
  */
 export class GistError extends Error {
 	/**
@@ -90,46 +88,17 @@ export function isGistConfigured() {
 	return getToken() !== undefined;
 }
 
-/**
- * Which storage this module is currently backed by — for UI that wants to show the user where
- * their data lives (e.g. a "synced to Gist" vs "saved locally only" indicator).
- *
- * @returns {'gist' | 'local'}
- */
-export function getPersistenceMode() {
-	return isGistConfigured() ? 'gist' : 'local';
-}
-
 /* -------------------------------------------------------------------------- */
-/* localStorage — fallback storage, and the cache for a self-created Gist id  */
+/* localStorage — the cache for a self-created Gist id                         */
 /* -------------------------------------------------------------------------- */
 
 /** @returns {boolean} */
 function hasLocalStorage() {
 	try {
-		return typeof localStorage !== 'undefined';
+		return typeof localStorage !== 'undefined' && localStorage !== null;
 	} catch {
 		return false;
 	}
-}
-
-/** @returns {AppDataDoc} */
-function loadFromLocalStorage() {
-	const raw = hasLocalStorage() ? localStorage.getItem(LOCAL_DATA_KEY) : null;
-	if (!raw) return createAppData();
-	try {
-		return normaliseAppData(JSON.parse(raw));
-	} catch {
-		// Corrupt localStorage (hand-edited, truncated write, old format) — start fresh rather
-		// than blocking the app from loading at all.
-		return createAppData();
-	}
-}
-
-/** @param {AppDataDoc} data */
-function saveToLocalStorage(data) {
-	if (!hasLocalStorage()) return;
-	localStorage.setItem(LOCAL_DATA_KEY, JSON.stringify(data));
 }
 
 /** @returns {string | undefined} */
@@ -249,22 +218,40 @@ async function createGist(token, data) {
 /* -------------------------------------------------------------------------- */
 
 /**
- * Load the app's data.
+ * The configured token, or a {@link GistError} explaining that this mode isn't set up. Reaching
+ * here without a token means something bypassed `./persistence.js`'s mode check — an error worth
+ * surfacing rather than silently doing nothing with the user's data.
  *
- * With no token configured, reads from `localStorage`. With a token but no Gist created yet
- * (neither `VITE_GIST_ID` nor a cached id from a prior save), returns a fresh empty document
- * without making a network request — there is nothing to load. Otherwise reads the Gist; a Gist
- * that exists but doesn't yet contain our file (e.g. a hand-created empty Gist used as
- * `VITE_GIST_ID`) also yields a fresh empty document — the file is created on first save.
+ * @returns {string}
+ */
+function requireToken() {
+	const token = getToken();
+	if (!token) {
+		throw new GistError(
+			'GitHub Gist sync is not configured: set VITE_GITHUB_TOKEN to use it, or stay in browser-only storage mode.'
+		);
+	}
+	return token;
+}
+
+/**
+ * Load the app's data from the Gist.
+ *
+ * With a token but no Gist created yet (neither `VITE_GIST_ID` nor a cached id from a prior save),
+ * returns a fresh empty document without making a network request — there is nothing to load.
+ * Otherwise reads the Gist; a Gist that exists but doesn't yet contain our file (e.g. a
+ * hand-created empty Gist used as `VITE_GIST_ID`) also yields a fresh empty document — the file is
+ * created on first save.
  *
  * Never throws for "nothing saved yet". Throws {@link GistError} if a Gist *is* configured/created
- * but can't actually be read (bad token, deleted Gist, network failure, invalid JSON in the file).
+ * but can't actually be read (bad token, deleted Gist, network failure, invalid JSON in the file),
+ * or if this is called at all with no token configured — `./persistence.js` only routes here in
+ * Gist mode, which by definition means a token exists.
  *
  * @returns {Promise<AppDataDoc>}
  */
 export async function loadAppData() {
-	const token = getToken();
-	if (!token) return loadFromLocalStorage();
+	const token = requireToken();
 
 	const gistId = getGistId();
 	if (!gistId) return createAppData();
@@ -289,22 +276,19 @@ export async function loadAppData() {
 }
 
 /**
- * Persist the app's data.
+ * Persist the app's data to the Gist — creating a new private Gist first if none is configured or
+ * cached yet (create-if-missing), and relying on the Gist API to create the data file within an
+ * existing Gist that doesn't have it (also create-if-missing, for the file rather than the whole
+ * Gist).
  *
- * With no token configured, writes to `localStorage`. With a token, writes to the Gist —
- * creating a new private Gist first if none is configured or cached yet (create-if-missing), and
- * relying on the Gist API to create the data file within an existing Gist that doesn't have it
- * (also create-if-missing, for the file rather than the whole Gist).
+ * Throws {@link GistError} on any API failure, and if called with no token configured (see
+ * {@link loadAppData}).
  *
  * @param {AppDataDoc} data
  * @returns {Promise<void>}
  */
 export async function saveAppData(data) {
-	const token = getToken();
-	if (!token) {
-		saveToLocalStorage(data);
-		return;
-	}
+	const token = requireToken();
 
 	const gistId = getGistId();
 	if (!gistId) {

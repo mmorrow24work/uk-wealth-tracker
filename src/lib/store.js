@@ -1,9 +1,10 @@
 /**
  * Global reactive app state (see `CLAUDE.md` → Architecture): one Svelte store holding the whole
- * `AppData` document, hydrated from `./gist.js` on load and written back to it — debounced — on
- * every change. Every feature tab is meant to read and write this store rather than keep its own
- * local copy of persisted data, per CLAUDE.md's "extend the shared data model rather than
- * introducing separate storage" rule.
+ * `AppData` document, hydrated from `./persistence.js` on load and written back to it — debounced
+ * — on every change. Which backend that is (browser storage or a GitHub Gist) is entirely
+ * `./persistence.js`'s business; this module only knows "load" and "save". Every feature tab is
+ * meant to read and write this store rather than keep its own local copy of persisted data, per
+ * CLAUDE.md's "extend the shared data model rather than introducing separate storage" rule.
  *
  * Two things this module deliberately does *not* do:
  * - Validate on every change. `validateAppData` (`./model.js`) reports problems a form should
@@ -18,8 +19,10 @@
 
 import { get, writable } from 'svelte/store';
 
-import { GistError, loadAppData, saveAppData } from './gist.js';
+import { BrowserStorageError } from './browser-storage.js';
+import { GistError } from './gist.js';
 import { createAppData } from './model.js';
+import { loadAppData, saveAppData } from './persistence.js';
 
 /**
  * Not re-declared as a local `@typedef` (unlike most `$lib` modules) because `index.js` re-exports
@@ -30,7 +33,7 @@ import { createAppData } from './model.js';
  */
 
 /**
- * How long to wait after the most recent change before writing to `./gist.js`. Long enough that a
+ * How long to wait after the most recent change before writing to `./persistence.js`. Long enough that a
  * burst of edits (typing a name, dragging a slider) becomes one write instead of one per
  * keystroke; short enough that closing the tab a couple of seconds after the last edit rarely
  * loses it.
@@ -49,10 +52,10 @@ export const appData = writable(createAppData());
 /**
  * @typedef {object} SyncState
  * @property {boolean} hydrated Whether {@link hydrateAppData} has completed at least once.
- * @property {boolean} syncing Whether a debounced write to `./gist.js` is in flight right now.
+ * @property {boolean} syncing Whether a debounced write to `./persistence.js` is in flight right now.
  * @property {string | null} error The most recent load or save failure, or `null` once one
  *   succeeds. Never set for "nothing saved yet" — only for a load/save that was attempted and
- *   failed (see `GistError` in `./gist.js`).
+ *   failed (see `GistError` in `./gist.js` and `BrowserStorageError` in `./browser-storage.js`).
  */
 
 /** @type {import('svelte/store').Writable<SyncState>} */
@@ -64,7 +67,9 @@ export const syncState = writable({ hydrated: false, syncing: false, error: null
  * @returns {string}
  */
 function describeError(cause, fallbackVerb) {
-	if (cause instanceof GistError) return cause.message;
+	// Both backends' own errors already read as a sentence aimed at the user; anything else is an
+	// unexpected failure that needs the "could not save/load" framing adding.
+	if (cause instanceof GistError || cause instanceof BrowserStorageError) return cause.message;
 	return `Could not ${fallbackVerb}: ${cause instanceof Error ? cause.message : String(cause)}`;
 }
 
@@ -93,7 +98,7 @@ appData.subscribe(() => {
 /**
  * Writes the store's *current* value, not whatever it held when the debounce timer was scheduled
  * — the sole point of debouncing is that only the latest state after a burst of edits ever reaches
- * `./gist.js`.
+ * `./persistence.js`.
  *
  * @returns {Promise<void>}
  */
@@ -115,7 +120,7 @@ async function persist() {
 let hydratePromise;
 
 /**
- * Loads the document from `./gist.js` (a configured Gist, or the `localStorage` fallback) and
+ * Loads the document from `./persistence.js` (browser storage, or a configured Gist) and
  * replaces {@link appData} with it. Concurrent calls share one in-flight load rather than firing
  * a second request — useful since both a root layout's `onMount` and an explicit "sync now"
  * action can reasonably call this.
