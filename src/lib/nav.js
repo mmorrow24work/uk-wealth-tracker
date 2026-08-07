@@ -11,7 +11,8 @@
  * 		| '/property'
  * 		| '/assets'
  * 		| '/budget'
- * 		| '/estate',
+ * 		| '/estate'
+ * 		| '/settings',
  * 	label: string
  * }} NavTab
  */
@@ -34,7 +35,8 @@ export const NAV_TABS = [
 	{ id: 'property', href: '/property', label: 'Property' },
 	{ id: 'assets', href: '/assets', label: 'Assets' },
 	{ id: 'budget', href: '/budget', label: 'Budget' },
-	{ id: 'estate', href: '/estate', label: 'Estate' }
+	{ id: 'estate', href: '/estate', label: 'Estate' },
+	{ id: 'settings', href: '/settings', label: 'Settings' }
 ];
 
 /**

@@ -13,7 +13,8 @@ describe('NAV_TABS', () => {
 			'property',
 			'assets',
 			'budget',
-			'estate'
+			'estate',
+			'settings'
 		]);
 	});
 
