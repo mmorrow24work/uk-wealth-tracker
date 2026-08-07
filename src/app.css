@@ -1,3 +1,10 @@
+/* Declares the `theme, base, components, utilities` cascade-layer order LayerChart's own
+   component styles rely on. Without this, layer precedence falls back to whatever order the
+   bundler happens to emit component styles in, which differs between dev and production builds
+   — the framework presets (shadcn-svelte, skeleton, daisyui) import this for you; this file maps
+   LayerChart's tokens by hand below, so it has to import it by hand too. */
+@import 'layerchart/core.css';
+
 :root {
 	--background: 0 0% 100%;
 	--foreground: 0 0% 3.6%;
@@ -71,4 +78,45 @@
 body {
 	background-color: hsl(var(--background));
 	color: hsl(var(--foreground));
+}
+
+/* Maps LayerChart's own chrome — axis rule, tick marks, tick-label halo, gridlines, the hover
+   crosshair and the tooltip popover — onto this app's tokens, so everything it draws that is not
+   a series follows the light/`.dark` themes above rather than LayerChart's library defaults.
+   Deliberately unlayered (not inside `@layer`): unlayered rules always beat layered ones, which is
+   what lets this override LayerChart's `@layer components` defaults with no specificity fight.
+
+   Two sibling rules, not one nested inside the other. `.lc-root-container` is the chart's own
+   wrapper, but LayerChart portals the tooltip to `<body>` so a chart inside a card can't clip it —
+   by the time `.lc-tooltip-root` renders it's a sibling of the app root, not a descendant of
+   `.lc-root-container`, so a nested selector would never reach it. The values differ between the
+   two because the surfaces differ: the chart sits on a card, the tooltip is a popover. */
+.lc-root-container {
+	--color-primary: hsl(var(--primary));
+	--color-surface-content: hsl(var(--card-foreground));
+	/* `-100`/`-200`/`-300` are graduated surface steps in LayerChart's own presets; this app has
+	   one card surface, not three, so all three steps take it. `-100` and `-300` in particular
+	   must match: the tooltip background (below) resolves via `light-dark(--color-surface-100,
+	   --color-surface-300)`, which switches on `color-scheme` — a property nothing in this app
+	   sets — so it would otherwise always take the light branch regardless of `.dark`. Giving
+	   both branches the same themed colour makes which one `light-dark()` picks irrelevant. */
+	--color-surface-100: hsl(var(--card));
+	--color-surface-200: hsl(var(--card));
+	--color-surface-300: hsl(var(--card));
+}
+
+.lc-tooltip-root {
+	--color-primary: hsl(var(--primary));
+	--color-surface-content: hsl(var(--popover-foreground));
+	--color-surface-100: hsl(var(--popover));
+	--color-surface-200: hsl(var(--popover));
+	--color-surface-300: hsl(var(--popover));
+}
+
+/* The crosshair dot's contrasting ring: LayerChart hard-codes it to `white`, which is a white
+   blob around a near-white dot on a dark card. It wants to be the surface behind the chart in
+   both modes. Nothing draws a highlight until #87 builds the hover layer that uses it; the
+   mapping belongs here with the rest of the chrome. */
+.lc-root-container .lc-highlight-point {
+	--stroke-color: hsl(var(--card));
 }
