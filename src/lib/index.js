@@ -72,6 +72,9 @@ export * from './dividends.js';
 // tab's DividendTaxSummary component.
 export * from './dividend-tax.js';
 
+// Property equity + buy-to-let cashflow/yield — see the Property tab's PropertyTracker component.
+export * from './property.js';
+
 // GitHub Gist persistence — the only place any feature tab should read/write stored data from.
 export * from './gist.js';
 

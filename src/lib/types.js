@@ -155,7 +155,9 @@
  * @property {string | null} deal_expiry Fixed/tracker deal end date, ISO `YYYY-MM-DD`. Drives the
  *   expiry reminder (amber within 90 days, red once past).
  * @property {number} rental_income Gross rent received (£/month). Buy-to-let and holiday lets.
- * @property {number} running_costs Running costs (£/month) — the other half of net cashflow.
+ * @property {number} running_costs Running costs (£/month), excluding the mortgage payment —
+ *   `monthly_payment` above already covers that. Net cashflow (`$lib/property.js`) is
+ *   `rental_income - running_costs - monthly_payment`, all three combined.
  * @property {number} growth_rate Assumed annual capital growth (%), for the equity projection.
  * @property {boolean} include_in_net_worth Whether equity counts towards net worth.
  */
