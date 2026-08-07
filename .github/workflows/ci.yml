@@ -3,6 +3,15 @@ name: CI
 on:
   pull_request:
     branches: [main]
+  # Manual escape hatch: on at least one occasion the pull_request-triggered
+  # check-suite for this workflow specifically never got created at all
+  # (confirmed via the Checks API -- other GitHub Apps' check-suites queued
+  # fine for the same push, github-actions' own did not), leaving a PR with
+  # no CI run to ever go green. workflow_dispatch lets a run be forced
+  # directly against a given ref/SHA -- its check-run still posts against
+  # that commit, so it satisfies the branch protection rule the same as a
+  # normal PR-triggered run would.
+  workflow_dispatch: {}
 
 jobs:
   build:
