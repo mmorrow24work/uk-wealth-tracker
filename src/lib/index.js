@@ -64,6 +64,10 @@ export * from './defined-benefit.js';
 // Pension tax relief per pot (2026/27) — see the Pensions tab's PensionTaxRelief component.
 export * from './pension-relief.js';
 
+// Dividend income planner: per-holding DRIP compounding projection vs income-phase income, split
+// around an age slider — see the Dividends tab's DividendTracker/DividendIncomePlanner components.
+export * from './dividends.js';
+
 // GitHub Gist persistence — the only place any feature tab should read/write stored data from.
 export * from './gist.js';
 
