@@ -68,6 +68,10 @@ export * from './pension-relief.js';
 // around an age slider — see the Dividends tab's DividendTracker/DividendIncomePlanner components.
 export * from './dividends.js';
 
+// UK dividend allowance, ISA/SIPP shelter and GIA dividend tax rates (2026/27) — see the Dividends
+// tab's DividendTaxSummary component.
+export * from './dividend-tax.js';
+
 // GitHub Gist persistence — the only place any feature tab should read/write stored data from.
 export * from './gist.js';
 

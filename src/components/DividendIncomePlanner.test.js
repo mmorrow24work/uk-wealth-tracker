@@ -73,11 +73,11 @@ describe('DividendIncomePlanner', () => {
 		expect(body).toContain('switching now');
 	});
 
-	it('notes that dividend allowance and GIA tax rates are not yet modelled', () => {
+	it('notes that the projection is gross, and points at the tax card above it (#35)', () => {
 		const body = text({
 			dividends: [createDividend({ name: 'A', value: 10_000, yield_pct: 4 })]
 		});
 		expect(body).toContain('gross of tax');
-		expect(body).toContain('#35');
+		expect(body).toContain('the card above applies the 2026/27 dividend allowance and GIA rates');
 	});
 });

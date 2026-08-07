@@ -26,11 +26,11 @@
  * deliberate, not incidental: both answer "what happens before this age, and what does it leave me
  * with after it".
  *
- * **What this deliberately does not model** — left to issue #35 ("UK dividend allowance + GIA tax
- * rates"), a separate, later build in this same milestone: the £500/yr tax-free dividend
- * allowance, the 10.75%/35.75% GIA tax rates, and ISA/SIPP shelter. Every figure here is gross —
- * `dividendPortfolioSummary`'s `sheltered`/`unsheltered` split exists only so #35 has something to
- * key its tax calculation off, not because this module applies any tax itself. Capital growth is
+ * **What this deliberately does not model** — `./dividend-tax.js` owns it instead (issue #35, "UK
+ * dividend allowance + GIA tax rates"): the £500/yr tax-free dividend allowance, the
+ * 10.75%/35.75%/39.35% GIA dividend rates, and ISA/SIPP shelter. Every figure here is gross —
+ * `dividendPortfolioSummary`'s `sheltered`/`unsheltered` split exists so that module has something
+ * to key its tax calculation off, not because this one applies any tax itself. Capital growth is
  * also not modelled: a holding's value moves only from its own yield (reinvested or not) and its
  * contribution schedule, never from an assumed price return — `forecast.js` already owns
  * price-growth projection for the net worth dashboard, and folding a second, disagreeing growth
@@ -73,7 +73,7 @@ export const MAX_PROJECTION_MONTHS = 1200;
 
 /**
  * What one holding pays a year at today's value and yield, before any tax (see module doc — tax is
- * issue #35's job, not this function's).
+ * `./dividend-tax.js`'s job, not this function's).
  *
  * @param {Partial<import('./types.js').Dividend> | null} [dividend]
  * @returns {number} (£/yr)
@@ -132,9 +132,9 @@ function slice(holdings) {
  * @property {DividendSlice} drip Holdings whose dividend is currently reinvested.
  * @property {DividendSlice} income Holdings whose dividend is currently taken as income.
  * @property {DividendSlice} sheltered Holdings in an ISA/SIPP wrapper — outside the scope of the
- *   £500/yr dividend allowance and GIA tax rates (issue #35).
+ *   £500/yr dividend allowance and GIA tax rates (`./dividend-tax.js`).
  * @property {DividendSlice} unsheltered Holdings not in a tax-sheltered wrapper — a General
- *   Investment Account, or an unwrapped holding — the slice #35's tax calculation will apply to.
+ *   Investment Account, or an unwrapped holding — the slice `./dividend-tax.js` taxes.
  */
 
 /**
