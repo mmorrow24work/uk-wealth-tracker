@@ -75,6 +75,9 @@ export * from './dividend-tax.js';
 // Property equity + buy-to-let cashflow/yield — see the Property tab's PropertyTracker component.
 export * from './property.js';
 
+// Client-side XLSX export of the whole document — see the dashboard's DataExport component.
+export * from './xlsx-export.js';
+
 // Persistence. `persistence.js` is the front door — it owns `loadAppData`/`saveAppData` and which
 // mode the app is in; the two backends are re-exported by name only, since all three modules
 // deliberately share the same load/save function names and `export *` cannot resolve that.

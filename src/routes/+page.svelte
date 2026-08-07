@@ -3,6 +3,7 @@
 	import { get } from 'svelte/store';
 
 	import AutoInvestFill from '../components/AutoInvestFill.svelte';
+	import DataExport from '../components/DataExport.svelte';
 	import DebtTracker from '../components/DebtTracker.svelte';
 	import InvestmentHoldings from '../components/InvestmentHoldings.svelte';
 	import NetWorthChart from '../components/NetWorthChart.svelte';
@@ -68,4 +69,5 @@
 	<InvestmentHoldings bind:monthlyEntries bind:activityLog />
 	<DebtTracker bind:monthlyEntries bind:activityLog />
 	<AutoInvestFill bind:monthlyEntries growthRate={5} />
+	<DataExport />
 </div>
