@@ -297,6 +297,18 @@ export const PENSION_TYPE_LABELS = Object.freeze({
 export const DEFINED_BENEFIT_PENSION_TYPES = Object.freeze(['db_final_salary', 'db_care']);
 
 /**
+ * Pension types that are a pot of money the member owns — the pots that become drawdown or an
+ * annuity in the retirement income stream builder (#33).
+ *
+ * A Lifetime ISA is deliberately *not* here even though `PENSION_POT_TYPES` includes it: a LISA
+ * drawn after 60 comes out tax-free, which makes it an ISA withdrawal in everything but the tab it
+ * was typed into. The two Defined Benefit types have no pot at all, and the State Pension is a
+ * promise rather than a pot.
+ * @type {readonly PensionType[]}
+ */
+export const DEFINED_CONTRIBUTION_PENSION_TYPES = Object.freeze(['dc_workplace', 'sipp']);
+
+/**
  * The pot types the Pension tracker's add/edit form supports (issue #29) — every `PensionType`
  * except `state`. State Pension has no pot to add by hand; it is derived from NI qualifying years
  * instead, by `$lib/state-pension.js` and the Pensions tab's own StatePensionProjection card

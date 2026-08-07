@@ -5,6 +5,7 @@
 	import DefinedBenefitIncome from '../../components/DefinedBenefitIncome.svelte';
 	import PensionTaxRelief from '../../components/PensionTaxRelief.svelte';
 	import PensionTracker from '../../components/PensionTracker.svelte';
+	import RetirementIncomeStreams from '../../components/RetirementIncomeStreams.svelte';
 	import StatePensionProjection from '../../components/StatePensionProjection.svelte';
 	import {
 		appData,
@@ -21,6 +22,14 @@
 	// pattern the dashboard's `+page.svelte` uses for `monthlyEntries`/`activityLog`.
 	/** @type {import('$lib/types.js').Pension[]} */
 	let pensions = $state([]);
+	// `RetirementIncomeStreams` (#33) is the one card here that reaches outside `pensions[]`: ISA
+	// withdrawals come from the latest monthly snapshot's holdings and the GIA dividend stream from
+	// the dividend planner. Both are read-only and never written back — this tab owns `pensions` and
+	// nothing else, so the dashboard and the Dividends tab stay the only places those two are edited.
+	/** @type {import('$lib/types.js').MonthlyEntry[]} */
+	let monthlyEntries = $state([]);
+	/** @type {import('$lib/types.js').Dividend[]} */
+	let dividends = $state([]);
 	// `PensionTaxRelief` (#32) needs `profile.gross_salary`/`profile.tax_region` to work out a pot's
 	// relief, and `StatePensionProjection` (#31) needs `profile.dob_month`/`dob_year` to date State
 	// Pension age — the same read-only, not-written-back seeding the tax tab gives `TaxCalculator`.
@@ -32,6 +41,8 @@
 		await hydrateAppData();
 		const data = get(appData);
 		pensions = data.pensions;
+		monthlyEntries = data.monthly_entries;
+		dividends = data.dividends;
 		profile = data.profile;
 		ready = true;
 	});
@@ -46,8 +57,9 @@
 <p>
 	Pension pot tracking for DC Workplace, SIPP, Defined Benefit (Final Salary/CARE) and Lifetime ISA
 	pots, the income your Defined Benefit schemes will pay, the tax relief each pot's own contribution
-	attracts, and what your National Insurance record projects to as a State Pension. The retirement
-	income stream builder (#33) lands in a later build.
+	attracts, what your National Insurance record projects to as a State Pension, and — at the bottom
+	— every one of those streams added together into a single retirement income, after tax and against
+	your target.
 </p>
 <p class="text-sm text-muted-foreground">
 	{getPersistenceMode() === 'gist' ? 'Synced to your GitHub Gist' : 'Saved to this browser only'}.
@@ -61,6 +73,7 @@
 		<DefinedBenefitIncome {pensions} />
 		<StatePensionProjection bind:pensions {profile} />
 		<PensionTaxRelief {pensions} {profile} />
+		<RetirementIncomeStreams {pensions} {monthlyEntries} {dividends} {profile} />
 	{:else}
 		<p class="text-sm text-muted-foreground">Loading your saved data…</p>
 	{/if}

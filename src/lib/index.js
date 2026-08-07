@@ -80,6 +80,11 @@ export * from './dividends.js';
 // tab's DividendTaxSummary component.
 export * from './dividend-tax.js';
 
+// Every retirement income stream in one view — Defined Benefit, annuity, SIPP drawdown, ISA
+// withdrawals, GIA dividends and the State Pension — see the Pensions tab's RetirementIncomeStreams
+// component. Sits below the modules above because it composes all of them.
+export * from './retirement-income.js';
+
 // Property equity + buy-to-let cashflow/yield — see the Property tab's PropertyTracker component.
 export * from './property.js';
 
