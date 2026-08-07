@@ -37,3 +37,6 @@ export * from './gist.js';
 // Global reactive app state — the shared store every feature tab should read/write against
 // instead of local component state. Hydrates from and syncs (debounced) to gist.js.
 export * from './store.js';
+
+// Net worth calculation and month-on-month change tracking.
+export * from './net-worth.js';

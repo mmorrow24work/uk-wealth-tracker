@@ -5,6 +5,7 @@
 	import AutoInvestFill from '../components/AutoInvestFill.svelte';
 	import DebtTracker from '../components/DebtTracker.svelte';
 	import InvestmentHoldings from '../components/InvestmentHoldings.svelte';
+	import MonthOnMonthChange from '../components/MonthOnMonthChange.svelte';
 	import {
 		appData,
 		compareMonthlyEntries,
@@ -72,6 +73,7 @@
 </p>
 
 <div class="mt-6 flex max-w-2xl flex-col gap-6">
+	<MonthOnMonthChange {monthlyEntries} />
 	<InvestmentHoldings bind:monthlyEntries bind:activityLog />
 	<DebtTracker {investments} bind:debts bind:activityLog />
 	<AutoInvestFill bind:monthlyEntries growthRate={5} />
