@@ -39,8 +39,10 @@
 import {
 	getGitHubToken,
 	getStoredAccount,
+	isGitHubSignedIn,
 	signInWithGitHubToken,
-	signOutOfGitHub
+	signOutOfGitHub,
+	verifyGitHubToken
 } from './github-auth.js';
 import { createAppData, normaliseAppData } from './model.js';
 
@@ -271,8 +273,9 @@ export function setActiveGistId(input) {
 
 /**
  * Forget which Gist this browser was pointed at. The Gist itself is untouched — deleting the data
- * in it is issue #63's job — so this means "stop syncing here", after which the next save falls
- * back to `VITE_GIST_ID` if the build has one, or creates a fresh private Gist if it doesn't.
+ * in it is {@link deleteGistData}'s job — so this means "stop syncing here", after which the next
+ * save falls back to `VITE_GIST_ID` if the build has one, or creates a fresh private Gist if it
+ * doesn't.
  *
  * @returns {void}
  */
@@ -466,6 +469,157 @@ export async function saveAppData(data) {
 }
 
 /* -------------------------------------------------------------------------- */
+/* Deleting the data (issue #63)                                               */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Whether two GitHub identities are the same account. Prefers the numeric `id`, which survives a
+ * rename of `login`; falls back to a case-insensitive `login` comparison when either side has no
+ * usable id (`getStoredAccount` records `0` for a record GitHub gave no id for). Never returns true
+ * on absent data — an unknown identity is not a match.
+ *
+ * @param {{ login?: unknown, id?: unknown } | null | undefined} a
+ * @param {{ login?: unknown, id?: unknown } | null | undefined} b
+ * @returns {boolean}
+ */
+function isSameAccount(a, b) {
+	if (typeof a?.id === 'number' && a.id > 0 && typeof b?.id === 'number' && b.id > 0) {
+		return a.id === b.id;
+	}
+	return (
+		typeof a?.login === 'string' &&
+		typeof b?.login === 'string' &&
+		a.login.toLowerCase() === b.login.toLowerCase()
+	);
+}
+
+/**
+ * @typedef {object} GistDeletion
+ * @property {'gist-deleted' | 'file-deleted' | 'nothing'} outcome What actually happened at GitHub:
+ *   the whole Gist was deleted, only this app's file was removed from a Gist that holds other files
+ *   too, or there was nothing of this app's there to delete.
+ * @property {string | undefined} gistId The Gist this ran against, if there was one.
+ * @property {string | undefined} owner The account GitHub said owns it — the one the deletion was
+ *   proved against.
+ * @property {boolean} revisionsRemain Whether earlier revisions of the Gist still hold the data.
+ *   True for `file-deleted`: a Gist's revision history survives a file being removed, and only
+ *   deleting the whole Gist takes it with it.
+ * @property {boolean} buildIdRemains Whether `VITE_GIST_ID` still points this build at the Gist that
+ *   was just deleted — the app cannot unset a compiled-in value, so the next save would fail
+ *   against an id that no longer exists until the build is rebuilt without it.
+ */
+
+/**
+ * Delete the signed-in user's data from GitHub — the remote half of "delete all my data" (#63).
+ *
+ * **Scoped to the user's own Gist by construction, not by care.** This function takes no Gist id:
+ * there is no parameter for a caller to pass the wrong one through. The id can only come from
+ * {@link getGistId} — what this browser is actually syncing with — and before anything is deleted,
+ * three identities must agree:
+ *
+ * 1. the account this browser signed in as (`./github-auth.js`'s stored record — the one the
+ *    confirmation UI named on screen),
+ * 2. the account the active token authenticates as *right now* (`GET /user`, re-checked rather than
+ *    trusted from sign-in time, since a token can be replaced or re-scoped behind the app's back),
+ * 3. the account GitHub says owns that Gist (`owner` on `GET /gists/:id`).
+ *
+ * Any disagreement throws and deletes nothing. An in-app sign-in is required outright: a token
+ * compiled into the build has never been presented to GitHub by this app, so there is no verified
+ * account to prove ownership against, and a destructive action is the wrong place to start guessing.
+ *
+ * **Why the whole Gist, when it only holds this app's file.** Overwriting the file — or removing it
+ * — leaves every earlier revision readable to anyone with the Gist's id, and a secret Gist's id is
+ * its only protection (`DESIGN.md` → Data Persistence). `DELETE /gists/:id` is the only operation
+ * that takes the revision history with it, so it is what "delete all my data" has to mean. A Gist
+ * that also holds files this app never wrote is a Gist the user keeps for other things: there, only
+ * this app's file is removed, `revisionsRemain` comes back true, and deleting the rest is left to
+ * the user, who is the only one who knows what else is in there.
+ *
+ * The local Gist pointer is forgotten either way, so the next save starts a fresh private Gist
+ * rather than silently re-populating the one just emptied.
+ *
+ * @returns {Promise<GistDeletion>}
+ * @throws {GistError} Not signed in, identities disagree, or the API call failed. Nothing is deleted
+ *   in any of those cases.
+ * @throws {import('./github-auth.js').GitHubAuthError} If the token no longer verifies at all.
+ */
+export async function deleteGistData() {
+	const token = requireToken();
+
+	if (!isGitHubSignedIn()) {
+		throw new GistError(
+			'Deleting your Gist needs an in-app GitHub sign-in. This build is using a token compiled into it, whose account this app has never verified — sign in on the Connect GitHub page first. Nothing was deleted.'
+		);
+	}
+	const signedInAs = getStoredAccount();
+	if (!signedInAs) {
+		throw new GistError(
+			'This browser has a GitHub token but no record of which account it belongs to, so ownership of the Gist cannot be proved. Sign in again. Nothing was deleted.'
+		);
+	}
+
+	const gistId = getGistId();
+	if (!gistId) {
+		// Signed in, but nothing was ever synced from this browser. There is no remote data and no
+		// pointer worth keeping; the local copy is `browser-storage.js`'s to delete.
+		clearActiveGistId();
+		return {
+			outcome: 'nothing',
+			gistId: undefined,
+			owner: signedInAs.login,
+			revisionsRemain: false,
+			buildIdRemains: false
+		};
+	}
+
+	const live = await verifyGitHubToken(token);
+	if (!isSameAccount(live, signedInAs)) {
+		throw new GistError(
+			`This browser is signed in as @${signedInAs.login}, but that token now belongs to @${live.login}. Sign in again before deleting anything — nothing was deleted.`
+		);
+	}
+
+	const gist = await githubRequest(`/gists/${gistId}`, token);
+	const owner = gist?.owner;
+	if (!owner || typeof owner.login !== 'string') {
+		throw new GistError(
+			`GitHub did not say who Gist ${gistId} belongs to, so this app will not delete it. Nothing was deleted.`
+		);
+	}
+	if (!isSameAccount(owner, live)) {
+		throw new GistError(
+			`Gist ${gistId} belongs to @${owner.login}, not to @${live.login}. This app only deletes a Gist it can prove is yours — nothing was deleted.`
+		);
+	}
+
+	const filenames = Object.keys(gist.files ?? {});
+	const holdsOurFile = filenames.includes(GIST_FILENAME);
+
+	/** @type {GistDeletion['outcome']} */
+	let outcome = 'nothing';
+	if (holdsOurFile && filenames.length === 1) {
+		await githubRequest(`/gists/${gistId}`, token, { method: 'DELETE' });
+		outcome = 'gist-deleted';
+	} else if (holdsOurFile) {
+		await githubRequest(`/gists/${gistId}`, token, {
+			method: 'PATCH',
+			body: { files: { [GIST_FILENAME]: null } }
+		});
+		outcome = 'file-deleted';
+	}
+
+	clearActiveGistId();
+
+	return {
+		outcome,
+		gistId,
+		owner: owner.login,
+		revisionsRemain: outcome === 'file-deleted',
+		buildIdRemains: outcome === 'gist-deleted' && getConfiguredGistId() === gistId
+	};
+}
+
+/* -------------------------------------------------------------------------- */
 /* Connecting an account (the half that spans auth *and* the Gist pointer)     */
 /* -------------------------------------------------------------------------- */
 
@@ -505,7 +659,8 @@ export async function connectGitHubAccount(token) {
  * Deliberately *not* symmetrical with {@link connectGitHubAccount}: forgetting which Gist held the
  * data would mean signing back in as the same person created a second, empty Gist and silently
  * orphaned the first. The token is the secret worth dropping; the id is a bookmark, and the connect
- * page shows it either way so it is never a hidden one.
+ * page shows it either way so it is never a hidden one. Nothing is deleted here either — that is
+ * {@link deleteGistData}, which the connect page keeps behind its own confirmation.
  *
  * @returns {import('./github-auth.js').GitHubConnection} The connection after signing out.
  */

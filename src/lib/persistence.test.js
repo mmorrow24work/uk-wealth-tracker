@@ -33,14 +33,14 @@ function createMemoryStorage() {
 // decides whether Gist mode exists at all, which is exactly what these tests vary.
 vi.mock('./gist.js', async () => {
 	const actual = /** @type {typeof import('./gist.js')} */ (await vi.importActual('./gist.js'));
-	return { ...actual, loadAppData: vi.fn(), saveAppData: vi.fn() };
+	return { ...actual, loadAppData: vi.fn(), saveAppData: vi.fn(), deleteGistData: vi.fn() };
 });
 
 vi.mock('./browser-storage.js', async () => {
 	const actual = /** @type {typeof import('./browser-storage.js')} */ (
 		await vi.importActual('./browser-storage.js')
 	);
-	return { ...actual, loadAppData: vi.fn(), saveAppData: vi.fn() };
+	return { ...actual, loadAppData: vi.fn(), saveAppData: vi.fn(), deleteAppData: vi.fn() };
 });
 
 const MODE_KEY = 'uk-wealth-tracker:persistence-mode';
@@ -53,6 +53,10 @@ let gistSave;
 let browserLoad;
 /** @type {import('vitest').Mock} */
 let browserSave;
+/** @type {import('vitest').Mock} */
+let gistDelete;
+/** @type {import('vitest').Mock} */
+let browserDelete;
 
 beforeEach(async () => {
 	vi.unstubAllEnvs();
@@ -64,10 +68,20 @@ beforeEach(async () => {
 	gistSave = /** @type {import('vitest').Mock} */ (gist.saveAppData);
 	browserLoad = /** @type {import('vitest').Mock} */ (browser.loadAppData);
 	browserSave = /** @type {import('vitest').Mock} */ (browser.saveAppData);
+	gistDelete = /** @type {import('vitest').Mock} */ (gist.deleteGistData);
+	browserDelete = /** @type {import('vitest').Mock} */ (browser.deleteAppData);
 	gistLoad.mockReset().mockResolvedValue(createAppData());
 	gistSave.mockReset().mockResolvedValue(undefined);
 	browserLoad.mockReset().mockResolvedValue(createAppData());
 	browserSave.mockReset().mockResolvedValue(undefined);
+	gistDelete.mockReset().mockResolvedValue({
+		outcome: 'gist-deleted',
+		gistId: 'aa11bb22cc33',
+		owner: 'octocat',
+		revisionsRemain: false,
+		buildIdRemains: false
+	});
+	browserDelete.mockReset().mockResolvedValue(undefined);
 });
 
 afterEach(() => {
@@ -268,5 +282,135 @@ describe('loadAppData / saveAppData routing', () => {
 
 		const { saveAppData } = await import('./persistence.js');
 		await expect(saveAppData(createAppData())).rejects.toThrow(BrowserStorageError);
+	});
+});
+
+describe('isDeleteConfirmed', () => {
+	it('accepts the exact phrase, whitespace around it forgiven', async () => {
+		const { DELETE_CONFIRMATION_PHRASE, isDeleteConfirmed } = await import('./persistence.js');
+		expect(DELETE_CONFIRMATION_PHRASE).toBe('DELETE');
+		expect(isDeleteConfirmed('DELETE')).toBe(true);
+		expect(isDeleteConfirmed('  DELETE  ')).toBe(true);
+	});
+
+	it('rejects anything else, case included — "delete" is a word people type by reflex', async () => {
+		const { isDeleteConfirmed } = await import('./persistence.js');
+		expect(isDeleteConfirmed('delete')).toBe(false);
+		expect(isDeleteConfirmed('Delete')).toBe(false);
+		expect(isDeleteConfirmed('DELETE ALL')).toBe(false);
+		expect(isDeleteConfirmed('')).toBe(false);
+		expect(isDeleteConfirmed(undefined)).toBe(false);
+		expect(isDeleteConfirmed(null)).toBe(false);
+	});
+});
+
+describe('describeDeleteTarget', () => {
+	it('reaches only this browser in browser-only mode', async () => {
+		const { describeDeleteTarget } = await import('./persistence.js');
+		expect(describeDeleteTarget()).toEqual({
+			mode: 'browser',
+			scope: 'browser',
+			account: null,
+			gist: null,
+			blocked: null
+		});
+	});
+
+	it('names the signed-in account and the Gist in Gist mode', async () => {
+		localStorage.setItem('uk-wealth-tracker:github-token', 'ghp_valid');
+		localStorage.setItem(
+			'uk-wealth-tracker:github-account',
+			JSON.stringify({ login: 'octocat', id: 1 })
+		);
+		localStorage.setItem('uk-wealth-tracker:gist-id', 'aa11bb22cc33');
+
+		const { describeDeleteTarget } = await import('./persistence.js');
+		expect(describeDeleteTarget()).toEqual({
+			mode: 'gist',
+			scope: 'gist',
+			account: 'octocat',
+			gist: { id: 'aa11bb22cc33', url: 'https://gist.github.com/aa11bb22cc33', source: 'browser' },
+			blocked: null
+		});
+	});
+
+	it('blocks the Gist half on a build token, whose owner nobody has verified', async () => {
+		vi.stubEnv('VITE_GITHUB_TOKEN', 'build-token');
+		vi.stubEnv('VITE_GIST_ID', 'aa11bb22cc33');
+
+		const { describeDeleteTarget } = await import('./persistence.js');
+		const target = describeDeleteTarget();
+		expect(target.scope).toBe('gist');
+		expect(target.account).toBeNull();
+		expect(target.gist).toMatchObject({ id: 'aa11bb22cc33', source: 'build' });
+		expect(target.blocked).toMatch(/Sign in with GitHub/);
+	});
+
+	it('says there is no Gist yet when a signed-in browser has not synced with one', async () => {
+		localStorage.setItem('uk-wealth-tracker:github-token', 'ghp_valid');
+		localStorage.setItem(
+			'uk-wealth-tracker:github-account',
+			JSON.stringify({ login: 'octocat', id: 1 })
+		);
+
+		const { describeDeleteTarget } = await import('./persistence.js');
+		expect(describeDeleteTarget()).toMatchObject({ scope: 'gist', gist: null, blocked: null });
+	});
+});
+
+describe('deleteAllData routing', () => {
+	it('deletes only this browser’s copy in browser-only mode, touching no network', async () => {
+		const { deleteAllData } = await import('./persistence.js');
+		expect(await deleteAllData()).toEqual({ mode: 'browser', gist: null });
+		expect(browserDelete).toHaveBeenCalledTimes(1);
+		expect(gistDelete).not.toHaveBeenCalled();
+	});
+
+	it('deletes the Gist and then this browser’s copy in Gist mode', async () => {
+		vi.stubEnv('VITE_GITHUB_TOKEN', 'test-token');
+		const { deleteAllData } = await import('./persistence.js');
+
+		const result = await deleteAllData();
+
+		expect(result.mode).toBe('gist');
+		expect(result.gist).toMatchObject({ outcome: 'gist-deleted', gistId: 'aa11bb22cc33' });
+		expect(gistDelete).toHaveBeenCalledTimes(1);
+		expect(browserDelete).toHaveBeenCalledTimes(1);
+		expect(gistDelete.mock.invocationCallOrder[0]).toBeLessThan(
+			browserDelete.mock.invocationCallOrder[0]
+		);
+	});
+
+	it('leaves this browser’s copy alone when the Gist deletion fails', async () => {
+		// Remote first on purpose: a failure here has deleted nothing anywhere, so the user still has
+		// their data and can retry — rather than having lost the only copy they could have exported.
+		vi.stubEnv('VITE_GITHUB_TOKEN', 'test-token');
+		const { GistError } = await import('./gist.js');
+		gistDelete.mockRejectedValue(new GistError('GitHub says no'));
+
+		const { deleteAllData } = await import('./persistence.js');
+		await expect(deleteAllData()).rejects.toThrow(GistError);
+		expect(browserDelete).not.toHaveBeenCalled();
+	});
+
+	it('lets a browser-storage failure surface after the Gist has gone', async () => {
+		vi.stubEnv('VITE_GITHUB_TOKEN', 'test-token');
+		const { BrowserStorageError } = await import('./browser-storage.js');
+		browserDelete.mockRejectedValue(new BrowserStorageError('storage blocked'));
+
+		const { deleteAllData } = await import('./persistence.js');
+		await expect(deleteAllData()).rejects.toThrow(BrowserStorageError);
+		expect(gistDelete).toHaveBeenCalledTimes(1);
+	});
+
+	it('follows a mode switch made mid-session, like load and save do', async () => {
+		vi.stubEnv('VITE_GITHUB_TOKEN', 'test-token');
+		const { deleteAllData, setPersistenceMode } = await import('./persistence.js');
+
+		setPersistenceMode('browser');
+		await deleteAllData();
+
+		expect(gistDelete).not.toHaveBeenCalled();
+		expect(browserDelete).toHaveBeenCalledTimes(1);
 	});
 });

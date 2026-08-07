@@ -84,13 +84,15 @@ afterEach(() => {
  * it is only ever the happy path, so that what these tests assert is the *Gist* side of connecting.
  *
  * @param {string} login
+ * @param {number} [id] GitHub's numeric user id — what the #63 ownership check compares on when both
+ *   sides have one.
  */
-function verifiedUser(login) {
+function verifiedUser(login, id = 1) {
 	return {
 		ok: true,
 		status: 200,
 		headers: new Headers({ 'x-oauth-scopes': 'gist' }),
-		json: async () => ({ login, id: 1, name: null })
+		json: async () => ({ login, id, name: null })
 	};
 }
 
@@ -430,6 +432,269 @@ describe('normaliseGistId', () => {
 		expect(() => setActiveGistId('nope!')).toThrow(RangeError);
 		expect(localStorage.getItem(GIST_ID_KEY)).toBeNull();
 		expect(setActiveGistId('https://gist.github.com/octocat/aa11bb22cc33')).toBe('aa11bb22cc33');
+		expect(localStorage.getItem(GIST_ID_KEY)).toBe('aa11bb22cc33');
+	});
+});
+
+describe('deleteGistData — the remote half of "delete all my data" (#63)', () => {
+	/**
+	 * Put this browser in the state the connect page leaves it in: signed in as `login`, syncing with
+	 * `gistId`, which that account owns.
+	 *
+	 * @param {{ login?: string, id?: number, gistId?: string }} [options]
+	 */
+	function signedIn({ login = 'octocat', id = 1, gistId = 'aa11bb22cc33' } = {}) {
+		localStorage.setItem(TOKEN_KEY, 'ghp_valid');
+		localStorage.setItem(ACCOUNT_KEY, JSON.stringify({ login, id, scopes: ['gist'] }));
+		localStorage.setItem(GIST_ID_KEY, gistId);
+		localStorage.setItem(OWNER_KEY, login);
+	}
+
+	/**
+	 * The `GET /gists/:id` response the ownership check reads.
+	 *
+	 * @param {{ login?: string, id?: number, files?: string[] }} [options]
+	 */
+	function gistOwnedBy({ login = 'octocat', id = 1, files = ['uk-wealth-tracker.json'] } = {}) {
+		return jsonResponse({
+			owner: { login, id },
+			files: Object.fromEntries(files.map((name) => [name, { content: '{}', truncated: false }]))
+		});
+	}
+
+	it('deletes the whole Gist, revision history included, when it holds only this app’s file', async () => {
+		signedIn();
+		fetchMock
+			.mockResolvedValueOnce(verifiedUser('octocat'))
+			.mockResolvedValueOnce(gistOwnedBy())
+			.mockResolvedValueOnce(jsonResponse(null, { status: 204 }));
+
+		const { deleteGistData } = await import('./gist.js');
+		const result = await deleteGistData();
+
+		expect(result).toMatchObject({
+			outcome: 'gist-deleted',
+			gistId: 'aa11bb22cc33',
+			owner: 'octocat',
+			revisionsRemain: false
+		});
+		expect(fetchMock).toHaveBeenNthCalledWith(
+			3,
+			'https://api.github.com/gists/aa11bb22cc33',
+			expect.objectContaining({ method: 'DELETE' })
+		);
+	});
+
+	it('removes only this app’s file from a Gist that holds others, and says the revisions survive', async () => {
+		signedIn();
+		fetchMock
+			.mockResolvedValueOnce(verifiedUser('octocat'))
+			.mockResolvedValueOnce(gistOwnedBy({ files: ['uk-wealth-tracker.json', 'notes.md'] }))
+			.mockResolvedValueOnce(jsonResponse({}));
+
+		const { deleteGistData } = await import('./gist.js');
+		const result = await deleteGistData();
+
+		expect(result).toMatchObject({ outcome: 'file-deleted', revisionsRemain: true });
+		const [url, options] = fetchMock.mock.calls[2];
+		expect(url).toBe('https://api.github.com/gists/aa11bb22cc33');
+		expect(options.method).toBe('PATCH');
+		expect(JSON.parse(options.body)).toEqual({ files: { 'uk-wealth-tracker.json': null } });
+	});
+
+	it('deletes nothing at GitHub when the Gist holds no file of this app’s', async () => {
+		signedIn();
+		fetchMock
+			.mockResolvedValueOnce(verifiedUser('octocat'))
+			.mockResolvedValueOnce(gistOwnedBy({ files: ['notes.md'] }));
+
+		const { deleteGistData } = await import('./gist.js');
+		expect(await deleteGistData()).toMatchObject({ outcome: 'nothing' });
+		expect(fetchMock).toHaveBeenCalledTimes(2);
+	});
+
+	it('forgets the Gist afterwards, so the next save starts a fresh one', async () => {
+		signedIn();
+		fetchMock
+			.mockResolvedValueOnce(verifiedUser('octocat'))
+			.mockResolvedValueOnce(gistOwnedBy())
+			.mockResolvedValueOnce(jsonResponse(null, { status: 204 }));
+
+		const { deleteGistData, describeGistTarget } = await import('./gist.js');
+		await deleteGistData();
+
+		expect(localStorage.getItem(GIST_ID_KEY)).toBeNull();
+		expect(localStorage.getItem(OWNER_KEY)).toBeNull();
+		expect(describeGistTarget().id).toBeUndefined();
+	});
+
+	it('keeps the sign-in — deleting data is not signing out', async () => {
+		signedIn();
+		fetchMock
+			.mockResolvedValueOnce(verifiedUser('octocat'))
+			.mockResolvedValueOnce(gistOwnedBy())
+			.mockResolvedValueOnce(jsonResponse(null, { status: 204 }));
+
+		const { deleteGistData } = await import('./gist.js');
+		await deleteGistData();
+
+		expect(localStorage.getItem(TOKEN_KEY)).toBe('ghp_valid');
+		expect(localStorage.getItem(ACCOUNT_KEY)).not.toBeNull();
+	});
+
+	it('makes no request at all when this browser has never synced with a Gist', async () => {
+		localStorage.setItem(TOKEN_KEY, 'ghp_valid');
+		localStorage.setItem(ACCOUNT_KEY, JSON.stringify({ login: 'octocat', id: 1 }));
+
+		const { deleteGistData } = await import('./gist.js');
+		expect(await deleteGistData()).toMatchObject({ outcome: 'nothing', gistId: undefined });
+		expect(fetchMock).not.toHaveBeenCalled();
+	});
+
+	it('reports that a build-configured VITE_GIST_ID still points at the Gist it just deleted', async () => {
+		// The app cannot unset a value compiled into the bundle, so the next save would PATCH an id
+		// GitHub no longer has. Saying so beats letting that surface as a mystery 404.
+		vi.stubEnv('VITE_GIST_ID', 'aa11bb22cc33');
+		localStorage.setItem(TOKEN_KEY, 'ghp_valid');
+		localStorage.setItem(ACCOUNT_KEY, JSON.stringify({ login: 'octocat', id: 1 }));
+		fetchMock
+			.mockResolvedValueOnce(verifiedUser('octocat'))
+			.mockResolvedValueOnce(gistOwnedBy())
+			.mockResolvedValueOnce(jsonResponse(null, { status: 204 }));
+
+		const { deleteGistData } = await import('./gist.js');
+		expect(await deleteGistData()).toMatchObject({
+			outcome: 'gist-deleted',
+			buildIdRemains: true
+		});
+	});
+});
+
+describe('deleteGistData — proving the Gist is the signed-in user’s own', () => {
+	it('refuses on a build token, whose account this app has never verified', async () => {
+		vi.stubEnv('VITE_GITHUB_TOKEN', 'build-token');
+		vi.stubEnv('VITE_GIST_ID', 'aa11bb22cc33');
+
+		const { GistError, deleteGistData } = await import('./gist.js');
+		await expect(deleteGistData()).rejects.toThrow(GistError);
+		await expect(deleteGistData()).rejects.toThrow(/sign-in/i);
+		expect(fetchMock).not.toHaveBeenCalled();
+	});
+
+	it('refuses with no token at all', async () => {
+		const { GistError, deleteGistData } = await import('./gist.js');
+		await expect(deleteGistData()).rejects.toThrow(GistError);
+		expect(fetchMock).not.toHaveBeenCalled();
+	});
+
+	it('refuses when there is a token but no record of whose it is', async () => {
+		localStorage.setItem(TOKEN_KEY, 'ghp_valid');
+		localStorage.setItem(GIST_ID_KEY, 'aa11bb22cc33');
+
+		const { GistError, deleteGistData } = await import('./gist.js');
+		await expect(deleteGistData()).rejects.toThrow(GistError);
+		expect(fetchMock).not.toHaveBeenCalled();
+		expect(localStorage.getItem(GIST_ID_KEY)).toBe('aa11bb22cc33');
+	});
+
+	it('refuses when the token now authenticates as somebody else', async () => {
+		// The stored record is what the confirmation dialog named on screen; if the live token
+		// disagrees with it, the user was shown one thing and would be deleting another's.
+		localStorage.setItem(TOKEN_KEY, 'ghp_valid');
+		localStorage.setItem(ACCOUNT_KEY, JSON.stringify({ login: 'octocat', id: 1 }));
+		localStorage.setItem(GIST_ID_KEY, 'aa11bb22cc33');
+		fetchMock.mockResolvedValueOnce(verifiedUser('ada', 7));
+
+		const { GistError, deleteGistData } = await import('./gist.js');
+		await expect(deleteGistData()).rejects.toThrow(GistError);
+		expect(fetchMock).toHaveBeenCalledTimes(1);
+		expect(localStorage.getItem(GIST_ID_KEY)).toBe('aa11bb22cc33');
+	});
+
+	it('refuses to delete a Gist owned by anyone but the signed-in account', async () => {
+		localStorage.setItem(TOKEN_KEY, 'ghp_valid');
+		localStorage.setItem(ACCOUNT_KEY, JSON.stringify({ login: 'octocat', id: 1 }));
+		localStorage.setItem(GIST_ID_KEY, 'somebody-elses-gist');
+		fetchMock.mockResolvedValue(
+			jsonResponse({
+				owner: { login: 'ada', id: 7 },
+				files: { 'uk-wealth-tracker.json': { content: '{}' } }
+			})
+		);
+		fetchMock
+			.mockResolvedValueOnce(verifiedUser('octocat'))
+			.mockResolvedValueOnce(
+				jsonResponse({
+					owner: { login: 'ada', id: 7 },
+					files: { 'uk-wealth-tracker.json': { content: '{}' } }
+				})
+			)
+			.mockResolvedValueOnce(verifiedUser('octocat'))
+			.mockResolvedValueOnce(
+				jsonResponse({
+					owner: { login: 'ada', id: 7 },
+					files: { 'uk-wealth-tracker.json': { content: '{}' } }
+				})
+			);
+
+		const { GistError, deleteGistData } = await import('./gist.js');
+		await expect(deleteGistData()).rejects.toThrow(GistError);
+		await expect(deleteGistData()).rejects.toThrow(/belongs to @ada/);
+		// Two reads — the identity check and the ownership read — and nothing that mutates.
+		expect(fetchMock.mock.calls.every(([, options]) => (options?.method ?? 'GET') === 'GET')).toBe(
+			true
+		);
+	});
+
+	it('refuses when GitHub does not say who owns the Gist', async () => {
+		localStorage.setItem(TOKEN_KEY, 'ghp_valid');
+		localStorage.setItem(ACCOUNT_KEY, JSON.stringify({ login: 'octocat', id: 1 }));
+		localStorage.setItem(GIST_ID_KEY, 'anonymous-gist');
+		fetchMock
+			.mockResolvedValueOnce(verifiedUser('octocat'))
+			.mockResolvedValueOnce(jsonResponse({ files: { 'uk-wealth-tracker.json': {} } }));
+
+		const { GistError, deleteGistData } = await import('./gist.js');
+		await expect(deleteGistData()).rejects.toThrow(GistError);
+	});
+
+	it('matches on GitHub’s numeric id, so a renamed account still owns its Gist', async () => {
+		localStorage.setItem(TOKEN_KEY, 'ghp_valid');
+		localStorage.setItem(ACCOUNT_KEY, JSON.stringify({ login: 'old-name', id: 583231 }));
+		localStorage.setItem(GIST_ID_KEY, 'aa11bb22cc33');
+		fetchMock
+			.mockResolvedValueOnce(verifiedUser('new-name', 583231))
+			.mockResolvedValueOnce(
+				jsonResponse({
+					owner: { login: 'new-name', id: 583231 },
+					files: { 'uk-wealth-tracker.json': { content: '{}' } }
+				})
+			)
+			.mockResolvedValueOnce(jsonResponse(null, { status: 204 }));
+
+		const { deleteGistData } = await import('./gist.js');
+		expect(await deleteGistData()).toMatchObject({ outcome: 'gist-deleted' });
+	});
+
+	it('keeps the Gist pointer when GitHub refuses the deletion itself', async () => {
+		localStorage.setItem(TOKEN_KEY, 'ghp_valid');
+		localStorage.setItem(ACCOUNT_KEY, JSON.stringify({ login: 'octocat', id: 1 }));
+		localStorage.setItem(GIST_ID_KEY, 'aa11bb22cc33');
+		localStorage.setItem(OWNER_KEY, 'octocat');
+		fetchMock
+			.mockResolvedValueOnce(verifiedUser('octocat'))
+			.mockResolvedValueOnce(
+				jsonResponse({
+					owner: { login: 'octocat', id: 583231 },
+					files: { 'uk-wealth-tracker.json': { content: '{}' } }
+				})
+			)
+			.mockResolvedValueOnce(
+				jsonResponse({ message: 'Not Found' }, { ok: false, status: 404, text: async () => '' })
+			);
+
+		const { GistError, deleteGistData } = await import('./gist.js');
+		await expect(deleteGistData()).rejects.toThrow(GistError);
 		expect(localStorage.getItem(GIST_ID_KEY)).toBe('aa11bb22cc33');
 	});
 });

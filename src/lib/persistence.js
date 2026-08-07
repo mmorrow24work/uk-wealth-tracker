@@ -18,17 +18,26 @@
  * signing out silently falls back to `browser` rather than failing every save.
  *
  * `./store.js` talks to this module and never to a backend directly; the backends know nothing
- * about each other or about modes.
+ * about each other or about modes. The same is true of the one destructive operation, `deleteAllData`
+ * (#63): what "all" means differs by mode — a Gist plus this browser's copy, or just this browser's
+ * copy — and deciding that is this module's job, exactly as it is for load and save.
  *
  * SSR-safe: nothing here touches `localStorage` at import time (the GitHub Pages build prerenders).
  */
 
-import { loadAppData as loadFromBrowser, saveAppData as saveToBrowser } from './browser-storage.js';
 import {
+	deleteAppData as deleteFromBrowser,
+	loadAppData as loadFromBrowser,
+	saveAppData as saveToBrowser
+} from './browser-storage.js';
+import {
+	deleteGistData,
+	describeGistTarget,
 	isGistConfigured,
 	loadAppData as loadFromGist,
 	saveAppData as saveToGist
 } from './gist.js';
+import { describeGitHubConnection } from './github-auth.js';
 
 /**
  * Not re-declared as a local `@typedef` (unlike other `$lib` modules) because `index.js` re-exports
@@ -183,4 +192,112 @@ export function loadAppData() {
  */
 export function saveAppData(data) {
 	return getPersistenceMode() === 'gist' ? saveToGist(data) : saveToBrowser(data);
+}
+
+/* -------------------------------------------------------------------------- */
+/* Deleting everything (issue #63)                                             */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The phrase a user has to type, exactly, before the app will delete anything. Lives here rather
+ * than in the component so that every UI that ever offers the wipe (the connect page today, #100's
+ * Settings tab later) asks for the *same* phrase — a confirmation that varies by screen is one users
+ * learn to click through.
+ *
+ * Case-sensitive on purpose: "delete" is a word people type by reflex, `DELETE` is one they have to
+ * mean.
+ */
+export const DELETE_CONFIRMATION_PHRASE = 'DELETE';
+
+/**
+ * Whether what the user typed matches {@link DELETE_CONFIRMATION_PHRASE}. Surrounding whitespace is
+ * forgiven (it is invisible, and a paste can carry it); nothing else is.
+ *
+ * @param {unknown} input
+ * @returns {boolean}
+ */
+export function isDeleteConfirmed(input) {
+	return typeof input === 'string' && input.trim() === DELETE_CONFIRMATION_PHRASE;
+}
+
+/**
+ * @typedef {object} DeleteTarget
+ * @property {PersistenceMode} mode The mode the wipe would run in.
+ * @property {'gist' | 'browser'} scope What it would reach: in Gist mode the Gist *and* this
+ *   browser's copy, in browser-only mode this browser's copy alone.
+ * @property {string | null} account The signed-in account the Gist would be deleted as, if any.
+ * @property {{ id: string, url: string | undefined, source: 'browser' | 'build' }| null} gist The
+ *   Gist that would be deleted, if this browser has one.
+ * @property {string | null} blocked Why the Gist half cannot run, or `null` if it can. Never blocks
+ *   the browser-copy half, which needs nothing configured.
+ */
+
+/**
+ * What {@link deleteAllData} would actually delete, for a confirmation step that has to say so in
+ * specific terms — "your Gist aa11bb22 and this browser's copy", not "your data". Synchronous, so
+ * the panel can render it without awaiting.
+ *
+ * @returns {DeleteTarget}
+ */
+export function describeDeleteTarget() {
+	const mode = getPersistenceMode();
+	if (mode !== 'gist') {
+		return { mode, scope: 'browser', account: null, gist: null, blocked: null };
+	}
+
+	const connection = describeGitHubConnection();
+	const target = describeGistTarget();
+	return {
+		mode,
+		scope: 'gist',
+		account: connection.account?.login ?? null,
+		gist:
+			target.id === undefined
+				? null
+				: {
+						id: target.id,
+						url: target.url,
+						source: target.source === 'build' ? 'build' : 'browser'
+					},
+		blocked: connection.signedIn
+			? null
+			: 'Sign in with GitHub first. This app only deletes a Gist it can prove belongs to the signed-in account, and a token compiled into the build proves nothing about whose it is.'
+	};
+}
+
+/**
+ * @typedef {object} DeleteResult
+ * @property {PersistenceMode} mode The mode the wipe ran in.
+ * @property {import('./gist.js').GistDeletion | null} gist What happened at GitHub, or `null` in
+ *   browser-only mode, where nothing remote is touched.
+ */
+
+/**
+ * Delete everything this app has stored — issue #63's action, and the only irreversible thing in the
+ * codebase. Callers are expected to have gated it behind {@link isDeleteConfirmed}; nothing here
+ * re-asks, because a confirmation the API enforces would only be a second copy of a decision the UI
+ * has already made.
+ *
+ * In **Gist mode**: the signed-in user's own Gist first (`./gist.js`'s `deleteGistData`, which
+ * proves ownership before it deletes anything and takes no id from the caller), then this browser's
+ * copy — the "any local cache of it" half of the issue. Remote first on purpose: if GitHub refuses,
+ * this throws with the local copy still intact and the user can retry, rather than having deleted
+ * the only copy they could have exported.
+ *
+ * In **browser-only mode**: this browser's copy, and nothing else. No token is involved, no request
+ * is made, and a Gist that some other browser syncs with is none of this mode's business.
+ *
+ * Neither mode signs the user out, forgets their mode choice, or touches their GitHub token: those
+ * are separate actions with separate buttons, and a wipe that also logged you out would make "start
+ * again from empty" needlessly harder than it is.
+ *
+ * @returns {Promise<DeleteResult>}
+ * @throws {import('./gist.js').GistError | import('./browser-storage.js').BrowserStorageError} If
+ *   either half failed. A Gist failure means nothing was deleted at all.
+ */
+export async function deleteAllData() {
+	const mode = getPersistenceMode();
+	const gist = mode === 'gist' ? await deleteGistData() : null;
+	await deleteFromBrowser();
+	return { mode, gist };
 }
