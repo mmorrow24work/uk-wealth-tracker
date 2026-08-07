@@ -6,6 +6,7 @@ import {
 	MONTH_TICK_TARGET,
 	autoFilledPointCount,
 	forecastBandSeries,
+	monthOnMonthChange,
 	monthStartDate,
 	netWorthChartMonthTicks,
 	netWorthChartXDomain,
@@ -647,5 +648,71 @@ describe('autoFilledPointCount', () => {
 		]);
 
 		expect(autoFilledPointCount(points)).toBe(2);
+	});
+});
+
+describe('monthOnMonthChange', () => {
+	it('returns null for fewer than two recorded months', () => {
+		expect(monthOnMonthChange([])).toBeNull();
+		const single = netWorthSeries([entry(1, 2026, { investments: [10_000] })]);
+		expect(monthOnMonthChange(single)).toBeNull();
+	});
+
+	it('calculates absolute change in pounds', () => {
+		const points = netWorthSeries([
+			entry(1, 2026, { investments: [100_000] }),
+			entry(2, 2026, { investments: [120_000] })
+		]);
+
+		const change = monthOnMonthChange(points);
+		expect(change).not.toBeNull();
+		expect(change?.absolute).toBe(20_000);
+	});
+
+	it('calculates percentage change', () => {
+		const points = netWorthSeries([
+			entry(1, 2026, { investments: [100_000] }),
+			entry(2, 2026, { investments: [120_000] })
+		]);
+
+		const change = monthOnMonthChange(points);
+		expect(change).not.toBeNull();
+		expect(change?.percentage).toBe(20);
+	});
+
+	it('handles negative changes', () => {
+		const points = netWorthSeries([
+			entry(1, 2026, { investments: [100_000] }),
+			entry(2, 2026, { investments: [80_000] })
+		]);
+
+		const change = monthOnMonthChange(points);
+		expect(change).not.toBeNull();
+		expect(change?.absolute).toBe(-20_000);
+		expect(change?.percentage).toBe(-20);
+	});
+
+	it('returns NaN for percentage when previous month has zero net worth', () => {
+		const points = netWorthSeries([
+			entry(1, 2026, { investments: [], debts: [] }),
+			entry(2, 2026, { investments: [10_000] })
+		]);
+
+		const change = monthOnMonthChange(points);
+		expect(change).not.toBeNull();
+		expect(change?.absolute).toBe(10_000);
+		expect(Number.isNaN(change?.percentage)).toBe(true);
+	});
+
+	it('includes debts in the calculation', () => {
+		const points = netWorthSeries([
+			entry(1, 2026, { investments: [100_000], debts: [10_000] }),
+			entry(2, 2026, { investments: [110_000], debts: [5_000] })
+		]);
+
+		const change = monthOnMonthChange(points);
+		expect(change).not.toBeNull();
+		expect(change?.absolute).toBe(15_000);
+		expect(change?.percentage).toBeCloseTo(16.67, 1);
 	});
 });

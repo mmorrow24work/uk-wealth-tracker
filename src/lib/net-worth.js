@@ -144,6 +144,28 @@ export function autoFilledPointCount(points) {
 	return points.reduce((count, point) => count + (point.auto_filled ? 1 : 0), 0);
 }
 
+/**
+ * Month-on-month change in net worth from the latest recorded month to the previous one.
+ *
+ * Returns `null` if fewer than two recorded months exist. The change is returned as both
+ * absolute (£) and percentage of the previous month's net worth. A percentage of NaN is
+ * returned when the previous month's net worth is zero (division by zero).
+ *
+ * @param {readonly NetWorthPoint[]} points Oldest first, as {@link netWorthSeries} returns.
+ * @returns {{ absolute: number, percentage: number } | null}
+ */
+export function monthOnMonthChange(points) {
+	if (points.length < 2) return null;
+
+	const latest = points[points.length - 1];
+	const previous = points[points.length - 2];
+
+	const absolute = roundMoney(latest.net_worth - previous.net_worth);
+	const percentage = previous.net_worth === 0 ? NaN : (latest.net_worth - previous.net_worth) / previous.net_worth * 100;
+
+	return { absolute, percentage };
+}
+
 /* -------------------------------------------------------------------------- */
 /* The forecast band                                                           */
 /* -------------------------------------------------------------------------- */

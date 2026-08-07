@@ -178,6 +178,7 @@
 	import {
 		autoFilledPointCount,
 		forecastBandSeries,
+		monthOnMonthChange,
 		netWorthChartMonthTicks,
 		netWorthChartXDomain,
 		netWorthChartYExtent,
@@ -234,6 +235,7 @@
 	const first = $derived(points[0]);
 	const latest = $derived(points.at(-1));
 	const autoFilledCount = $derived(autoFilledPointCount(points));
+	const monthChange = $derived(monthOnMonthChange(points));
 
 	/**
 	 * The projection behind the overlay, or `null` when there is nothing to project from or the user
@@ -317,6 +319,25 @@
 		</p>
 	{:else if latest && first}
 		<p class="text-2xl font-semibold tabular-nums">{formatMoney(latest.net_worth)}</p>
+		{#if monthChange}
+			<p class="text-sm tabular-nums mb-2">
+				{#if monthChange.absolute >= 0}
+					<span class="text-green-600 dark:text-green-500">
+						↑ {formatMoney(monthChange.absolute)}
+					</span>
+				{:else}
+					<span class="text-red-600 dark:text-red-500">
+						↓ {formatMoney(Math.abs(monthChange.absolute))}
+					</span>
+				{/if}
+				{#if !Number.isNaN(monthChange.percentage)}
+					<span class="text-muted-foreground">
+						({#if monthChange.percentage >= 0}+{/if}{formatRate(monthChange.percentage)})
+					</span>
+				{/if}
+				<span class="text-muted-foreground"> month-on-month</span>
+			</p>
+		{/if}
 		{#if points.length === 1}
 			<p class="text-sm text-muted-foreground mb-2">
 				{formatMonth(latest)} — your first snapshot.
