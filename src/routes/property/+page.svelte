@@ -30,9 +30,10 @@
 <h1>Property</h1>
 <p>
 	Property tracking — primary residence, buy-to-let and holiday home types with value, outstanding
-	mortgage, monthly payment, interest rate, mortgage type and deal expiry date. Equity and
-	buy-to-let cashflow/yield (#37), and the mortgage deal expiry reminder plus equity growth
-	projection chart (#38), land in later builds.
+	mortgage, monthly payment, interest rate, mortgage type and deal expiry date, plus each property's
+	equity, buy-to-let cashflow/yield and a toggle for whether its equity counts towards net worth.
+	The mortgage deal expiry reminder and an equity growth projection chart (#38) land in a later
+	build.
 </p>
 <p class="text-sm text-muted-foreground">
 	{getPersistenceMode() === 'gist' ? 'Synced to your GitHub Gist' : 'Saved to this browser only'}.

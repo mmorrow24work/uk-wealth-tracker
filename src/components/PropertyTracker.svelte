@@ -2,8 +2,10 @@
 	/**
 	 * Property tracking — README.md → "Property Tracker": "Types: Primary residence, Buy to let,
 	 * Holiday home" and "Fields: value, outstanding mortgage, monthly payment, interest rate,
-	 * mortgage type (fixed/tracker/SVR), deal expiry date" (issue #36's exact scope — "types + core
-	 * fields").
+	 * mortgage type (fixed/tracker/SVR), deal expiry date" (issue #36's "types + core fields"),
+	 * extended here with "Equity calculation: value minus mortgage", "BTL: rental income, running
+	 * costs, net monthly cashflow, gross yield" and "Property equity toggle: include/exclude from
+	 * net worth" (issue #37's exact scope).
 	 *
 	 * Structured the same way `DividendTracker.svelte`/`PensionTracker.svelte` handle their own flat
 	 * lists: `properties[]` sits directly on `AppData` (`$lib/model.js`'s own `Property` typedef),
@@ -15,12 +17,23 @@
 	 * and a tracker that could not represent "no mortgage" would force every mortgage-free owner to
 	 * lie in the interest rate and payment fields instead.
 	 *
-	 * Deliberately out of scope here, left to their own later issues: equity (`value -
-	 * mortgage_balance`), buy-to-let rental income/running costs/cashflow/yield (#37), and the deal
-	 * expiry amber/red reminder plus equity growth projection chart (#38). This component only
-	 * collects the core fields and shows them back, the same way `DividendTracker.svelte` collects a
-	 * holding's fields without itself computing the DRIP projection `DividendIncomePlanner.svelte`
-	 * builds from them.
+	 * `rental_income` and `running_costs` are always-visible form fields, not shown/hidden by
+	 * `type` — the same restraint #36's own journal entry recorded for the rest of this form ("no
+	 * existing tracker in this codebase conditionally shows/hides fields based on another field's
+	 * value"). The computed equity/cashflow/yield line in each row *is* conditional — see below.
+	 *
+	 * `include_in_net_worth` is a row-level instant toggle, not a form field — the same pattern
+	 * `DebtTracker.svelte` uses for `exclude_from_net_worth` on a debt, rather than routing a
+	 * boolean through the add/edit form and an extra "Save changes" click.
+	 *
+	 * `$lib/property.js` owns the maths (`propertyEquity`, `propertyCashflow`,
+	 * `propertyGrossYield`, `propertyPortfolioSummary`); this component only reads it. The
+	 * cashflow/yield line only renders when a property has rent or running costs recorded — the
+	 * same "don't show a computed line for data that isn't there" rule already applied to
+	 * `monthly_payment`/`deal_expiry` below.
+	 *
+	 * Deliberately still out of scope, left to #38: the deal expiry amber/red reminder and the
+	 * equity growth projection chart (`growth_rate` sits on the record unused by this component).
 	 *
 	 * No activity log: `$lib/enums.js`'s `ACTIVITY_LOG_ENTITY_TYPES` covers `investment`/`debt` only
 	 * (issue #14's own scope), and properties were never in it — same as pensions and dividends.
@@ -32,6 +45,12 @@
 		PROPERTY_TYPE_LABELS
 	} from '$lib/enums.js';
 	import { createProperty } from '$lib/model.js';
+	import {
+		propertyCashflow,
+		propertyEquity,
+		propertyGrossYield,
+		propertyPortfolioSummary
+	} from '$lib/property.js';
 	import Card from './ui/card.svelte';
 	import Button from './ui/button.svelte';
 
@@ -51,8 +70,7 @@
 		return currencyFormatter.format(amount);
 	}
 
-	const totalValue = $derived(properties.reduce((sum, p) => sum + p.value, 0));
-	const totalMortgageBalance = $derived(properties.reduce((sum, p) => sum + p.mortgage_balance, 0));
+	const summary = $derived(propertyPortfolioSummary(properties));
 
 	/** @type {string | null} */
 	let editingId = $state(null);
@@ -66,6 +84,8 @@
 	/** @type {import('$lib/enums.js').MortgageType} */
 	let mortgageType = $state('fixed');
 	let dealExpiry = $state('');
+	let rentalIncome = $state('');
+	let runningCosts = $state('');
 
 	function resetForm() {
 		editingId = null;
@@ -77,6 +97,8 @@
 		interestRate = '';
 		mortgageType = 'fixed';
 		dealExpiry = '';
+		rentalIncome = '';
+		runningCosts = '';
 	}
 
 	function formFields() {
@@ -88,7 +110,9 @@
 			monthly_payment: Number(monthlyPayment) || 0,
 			interest_rate: Number(interestRate) || 0,
 			mortgage_type: mortgageType,
-			deal_expiry: dealExpiry === '' ? null : dealExpiry
+			deal_expiry: dealExpiry === '' ? null : dealExpiry,
+			rental_income: Number(rentalIncome) || 0,
+			running_costs: Number(runningCosts) || 0
 		};
 	}
 
@@ -103,6 +127,8 @@
 		interestRate = String(property.interest_rate);
 		mortgageType = property.mortgage_type;
 		dealExpiry = property.deal_expiry ?? '';
+		rentalIncome = String(property.rental_income);
+		runningCosts = String(property.running_costs);
 	}
 
 	function addProperty() {
@@ -136,6 +162,13 @@
 		properties = properties.filter((p) => p.id !== id);
 		if (editingId === id) resetForm();
 	}
+
+	/** @param {string} id */
+	function toggleIncludeInNetWorth(id) {
+		properties = properties.map((p) =>
+			p.id === id ? { ...p, include_in_net_worth: !p.include_in_net_worth } : p
+		);
+	}
 </script>
 
 <div class="flex flex-col gap-6">
@@ -147,12 +180,22 @@
 		{:else}
 			<p class="text-sm text-muted-foreground mb-3">
 				{properties.length} propert{properties.length === 1 ? 'y' : 'ies'} recorded, totalling {formatMoney(
-					totalValue
-				)} of value with {formatMoney(totalMortgageBalance)} outstanding mortgage.
+					summary.totalValue
+				)} of value with {formatMoney(summary.totalMortgageBalance)} outstanding mortgage — {formatMoney(
+					summary.totalEquity
+				)} equity.
+				{#if summary.excludedFromNetWorth.count > 0}
+					{formatMoney(summary.includedInNetWorth.equity)} of that counts towards net worth ({summary
+						.excludedFromNetWorth.count} propert{summary.excludedFromNetWorth.count === 1
+						? 'y'
+						: 'ies'} excluded).
+				{/if}
 			</p>
 
 			<ul class="flex flex-col gap-2 mb-4 list-none p-0 m-0">
 				{#each properties as property (property.id)}
+					{@const cashflow = propertyCashflow(property)}
+					{@const grossYield = propertyGrossYield(property)}
 					<li
 						class="flex items-center justify-between gap-3 border border-border rounded-md px-3 py-2"
 					>
@@ -173,8 +216,31 @@
 									· deal expires {property.deal_expiry}
 								{/if}
 							</span>
+							<span class="text-xs text-muted-foreground">
+								{formatMoney(propertyEquity(property))} equity
+								{#if !property.include_in_net_worth}
+									(excluded from net worth)
+								{/if}
+							</span>
+							{#if property.rental_income > 0 || property.running_costs > 0}
+								<span class="text-xs text-muted-foreground">
+									{formatMoney(property.rental_income)}/mo rent · {formatMoney(cashflow)}/mo net
+									cashflow
+									{#if grossYield !== null}
+										· {grossYield}% gross yield
+									{/if}
+								</span>
+							{/if}
 						</div>
 						<div class="flex items-center gap-2">
+							<label class="flex items-center gap-1.5 text-sm text-muted-foreground">
+								<input
+									type="checkbox"
+									checked={property.include_in_net_worth}
+									onchange={() => toggleIncludeInNetWorth(property.id)}
+								/>
+								Include in net worth
+							</label>
 							<Button variant="outline" size="sm" type="button" onclick={() => startEdit(property)}>
 								Edit
 							</Button>
@@ -278,6 +344,36 @@
 					bind:value={interestRate}
 					placeholder="0"
 					class="border border-input rounded-md px-2 py-1.5 text-sm w-24"
+				/>
+			</div>
+
+			<div class="flex flex-col gap-1">
+				<label class="text-sm font-medium" for="property-rental-income">
+					Monthly rental income (£)
+				</label>
+				<input
+					id="property-rental-income"
+					type="number"
+					min="0"
+					step="0.01"
+					bind:value={rentalIncome}
+					placeholder="0"
+					class="border border-input rounded-md px-2 py-1.5 text-sm w-32"
+				/>
+			</div>
+
+			<div class="flex flex-col gap-1">
+				<label class="text-sm font-medium" for="property-running-costs">
+					Monthly running costs (£)
+				</label>
+				<input
+					id="property-running-costs"
+					type="number"
+					min="0"
+					step="0.01"
+					bind:value={runningCosts}
+					placeholder="0"
+					class="border border-input rounded-md px-2 py-1.5 text-sm w-32"
 				/>
 			</div>
 

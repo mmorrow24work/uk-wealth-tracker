@@ -1,11 +1,13 @@
 /**
- * Server-rendered smoke tests for the property tracker (issue #36).
+ * Server-rendered smoke tests for the property tracker (issues #36 and #37).
  *
  * As `DividendTracker.test.js`/`PensionTracker.test.js` document: no browser test environment, so
  * `svelte/server`'s `render` covers the initial render only — the empty state, the field select
- * options, and the per-property summary line. The add/edit/remove logic itself is straightforward
- * state-juggling (mirroring `DividendTracker`/`PensionTracker`, neither of which tests that part
- * either) left to `npm run build && npm run preview` manual verification instead.
+ * options, and the per-property summary line, including the equity/cashflow/yield figures #37
+ * added and the `include_in_net_worth` checkbox's initial `checked` state. The add/edit/remove
+ * logic itself is straightforward state-juggling (mirroring `DividendTracker`/`PensionTracker`,
+ * neither of which tests that part either) left to `npm run build && npm run preview` manual
+ * verification instead.
  */
 import { render } from 'svelte/server';
 import { describe, expect, it } from 'vitest';
@@ -105,5 +107,93 @@ describe('PropertyTracker', () => {
 		const body = text();
 		expect(body).toContain('Add property');
 		expect(body).not.toContain('Save changes');
+	});
+
+	it("shows a property's equity", () => {
+		const body = text({
+			properties: [
+				createProperty({ name: '12 Oak Avenue', value: 300_000, mortgage_balance: 180_000 })
+			]
+		});
+		expect(body).toContain('£120,000 equity');
+		expect(body).not.toContain('excluded from net worth');
+	});
+
+	it('flags a property excluded from net worth', () => {
+		const body = text({
+			properties: [
+				createProperty({
+					name: 'Holiday cottage',
+					value: 200_000,
+					mortgage_balance: 0,
+					include_in_net_worth: false
+				})
+			]
+		});
+		expect(body).toContain('£200,000 equity');
+		expect(body).toContain('excluded from net worth');
+	});
+
+	it('shows the portfolio total equity, and the excluded-property note when relevant', () => {
+		const body = text({
+			properties: [
+				createProperty({ name: 'A', value: 300_000, mortgage_balance: 180_000 }),
+				createProperty({
+					name: 'B',
+					value: 200_000,
+					mortgage_balance: 0,
+					include_in_net_worth: false
+				})
+			]
+		});
+		expect(body).toContain('£320,000 equity');
+		expect(body).toContain('£120,000 of that counts towards net worth');
+		expect(body).toContain('1 property excluded');
+	});
+
+	it('shows rental income, net cashflow and gross yield for a let property', () => {
+		const body = text({
+			properties: [
+				createProperty({
+					name: '12 Oak Avenue',
+					type: 'buy_to_let',
+					value: 300_000,
+					monthly_payment: 900,
+					rental_income: 1_500,
+					running_costs: 200
+				})
+			]
+		});
+		expect(body).toContain('£1,500/mo rent');
+		expect(body).toContain('£400/mo net cashflow');
+		expect(body).toContain('6% gross yield');
+	});
+
+	it('does not show a cashflow line when no rent or running costs are recorded', () => {
+		const body = text({
+			properties: [createProperty({ name: '12 Oak Avenue', type: 'buy_to_let', value: 300_000 })]
+		});
+		expect(body).not.toContain('net cashflow');
+		expect(body).not.toContain('gross yield');
+	});
+
+	it('lists the rental income and running costs fields in the form', () => {
+		const body = text();
+		expect(body).toContain('Monthly rental income (£)');
+		expect(body).toContain('Monthly running costs (£)');
+	});
+
+	it('renders the include-in-net-worth checkbox checked by default, unchecked once excluded', () => {
+		const included = render(PropertyTracker, {
+			props: { properties: [createProperty({ name: 'A', value: 100_000 })] }
+		}).body;
+		expect(included).toMatch(/<input type="checkbox"[^>]*checked[^>]*\/>/);
+
+		const excluded = render(PropertyTracker, {
+			props: {
+				properties: [createProperty({ name: 'A', value: 100_000, include_in_net_worth: false })]
+			}
+		}).body;
+		expect(excluded).not.toMatch(/<input type="checkbox"[^>]*checked[^>]*\/>/);
 	});
 });
