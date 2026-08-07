@@ -1,12 +1,13 @@
 /**
- * Server-rendered smoke tests for the tracked net worth chart (issue #67).
+ * Server-rendered smoke tests for the net worth chart — the tracked line (issue #67) and the
+ * forecast confidence band overlaid on it (issue #81).
  *
  * Same approach and same limits as the other component tests here: `svelte/server`'s `render` gives
- * the component's *initial* markup, which is enough to assert the empty states, the headline figure
- * and the accessible summary a screen reader is handed. It deliberately does not assert the drawn
- * path — a `<Chart>` measures its container before it scales anything, and a server render has no
- * container to measure, so the plot area is empty by construction there. The maths behind every
- * coordinate is covered directly in `$lib/net-worth.test.js`.
+ * the component's *initial* markup, which is enough to assert the empty states, the headline figure,
+ * the legend and the accessible summary a screen reader is handed. It deliberately does not assert
+ * the drawn path — a `<Chart>` measures its container before it scales anything, and a server render
+ * has no container to measure, so the plot area is empty by construction there. The maths behind
+ * every coordinate is covered directly in `$lib/net-worth.test.js`.
  */
 import { render } from 'svelte/server';
 import { describe, expect, it } from 'vitest';
@@ -67,11 +68,23 @@ describe('NetWorthChart', () => {
 	});
 
 	it('explains that one snapshot is not yet a line, and shows its value', () => {
-		const rendered = text({ monthlyEntries: [entry(3, 2026, { investments: [12_500] })] });
+		// With the forecast switched off a single snapshot really is unplottable — a one-point spline
+		// draws nothing — so this is still the #67 empty state.
+		const rendered = text({
+			monthlyEntries: [entry(3, 2026, { investments: [12_500] })],
+			showForecast: false
+		});
 
 		expect(rendered).toContain('£12,500');
 		expect(rendered).toContain('Mar 2026');
 		expect(rendered).toContain('A line needs two months');
+	});
+
+	it('plots the forecast from a single snapshot rather than refusing to draw', () => {
+		const rendered = text({ monthlyEntries: [entry(3, 2026, { investments: [12_500] })] });
+
+		expect(rendered).toContain('what you see plotted is the forecast from this one');
+		expect(rendered).not.toContain('A line needs two months');
 	});
 
 	it('leads with the latest month, not the first', () => {
@@ -151,5 +164,71 @@ describe('NetWorthChart', () => {
 
 		expect(rendered).toContain('excluded from net worth');
 		expect(rendered).toContain('Months you skipped');
+	});
+});
+
+describe('NetWorthChart forecast overlay', () => {
+	/** @returns {import('$lib/types.js').MonthlyEntry[]} */
+	function history() {
+		return [entry(1, 2026, { investments: [100_000] }), entry(2, 2026, { investments: [101_000] })];
+	}
+
+	it('names all three series, so identity is never colour alone', () => {
+		const rendered = text({ monthlyEntries: history() });
+
+		expect(rendered).toContain('Tracked');
+		expect(rendered).toContain('Realistic (5%)');
+		expect(rendered).toContain('Pessimistic–optimistic (3%–7%)');
+	});
+
+	it('shifts the scenario rates with the growth rate and spread it is given', () => {
+		const rendered = text({ monthlyEntries: history(), growthRate: 6, spread: 3 });
+
+		expect(rendered).toContain('Realistic (6%)');
+		expect(rendered).toContain('Pessimistic–optimistic (3%–9%)');
+		expect(rendered).toContain('6% a year, give or take 3 percentage points');
+	});
+
+	it('says which snapshot the forecast is projected from', () => {
+		const rendered = text({ monthlyEntries: history() });
+
+		expect(rendered).toContain('Projected from your Feb 2026 snapshot');
+		expect(rendered).toContain('Illustrative only');
+	});
+
+	it('offers the horizon picker, defaulting to the horizon it was given', () => {
+		const rendered = body({ monthlyEntries: history(), forecastYears: 20 });
+
+		expect(rendered).toContain('Show forecast');
+		expect(rendered).toContain('20 years');
+		// Svelte marks the bound option as selected in the server render.
+		expect(rendered).toMatch(/<option[^>]*selected[^>]*>20 years/);
+	});
+
+	it('describes the band, not just the line, for a screen reader', () => {
+		const rendered = body({ monthlyEntries: history(), forecastYears: 10 });
+
+		expect(rendered).toContain('Forecast to Feb 2036');
+		expect(rendered).toContain('realistic at 5% a year');
+		expect(rendered).toContain('pessimistic to');
+		expect(rendered).toContain('optimistic.');
+	});
+
+	it('drops the overlay, the legend and the summary sentence when it is switched off', () => {
+		const rendered = body({ monthlyEntries: history(), showForecast: false });
+
+		expect(rendered).not.toContain('Projected from your');
+		expect(rendered).not.toContain('Pessimistic–optimistic');
+		expect(rendered).not.toContain('Forecast to');
+		// The tracked line is still there, and so is the switch to bring the forecast back.
+		expect(rendered).toContain('2 months recorded since Jan 2026');
+		expect(rendered).toContain('Show forecast');
+	});
+
+	it('offers nothing to forecast from before the first snapshot', () => {
+		const rendered = text({ monthlyEntries: [] });
+
+		expect(rendered).not.toContain('Show forecast');
+		expect(rendered).not.toContain('Projected from your');
 	});
 });
