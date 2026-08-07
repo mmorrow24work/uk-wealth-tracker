@@ -12,24 +12,32 @@
 	 * than the `LineChart` wrapper: five marks share one plot area, one pair of accessors and one
 	 * pair of scales.
 	 *
-	 * Three things are deliberately still missing, all of them #82: the hover tooltip, the point
-	 * markers and the visible auto-filled/recorded distinction, and the accessible table fallback.
-	 * Until that lands the chart carries an `aria-label` summarising what the lines do, which is a
-	 * summary rather than the data. Theming LayerChart's own chrome off this app's shadcn tokens (it
-	 * ships a `layerchart/styles/shadcn-svelte.css` bridge) is #82's too; nothing here imports that
-	 * sheet, the axis rule, ticks and gridlines are given explicit token colours instead, and
-	 * everything else inherits `currentColor` from the container.
+	 * #82 adds the static presentation layer on top: a `Circle` marker per recorded month — hollow for
+	 * an auto-filled one, filled for a hand-recorded one, so the distinction is shape rather than
+	 * colour — a caption under the chart naming that shape in words, and a `<details>` "Show as a
+	 * table" fallback reading the same `points` array as text. All three read off `netWorthSeries(...)`
+	 * alone; the forecast band gets no markers, since it is a projection rather than a set of recorded
+	 * months.
+	 *
+	 * Still missing, and #85's rather than this component's: the hover tooltip, the crosshair/point
+	 * highlight, and theming LayerChart's own chrome off this app's shadcn tokens (it ships a
+	 * `layerchart/styles/shadcn-svelte.css` bridge). Nothing here imports that sheet; the axis rule,
+	 * ticks and gridlines are given explicit token colours instead, and everything else inherits
+	 * `currentColor` from the container. Until #85 lands the chart carries an `aria-label` summarising
+	 * what the lines do — a summary rather than the data, which is what the table fallback below is
+	 * for.
 	 *
 	 * All the arithmetic lives in `$lib/net-worth.js` and `$lib/forecast.js` — this component decides
 	 * only how the series look. Note in particular that both date formatters below are pinned to
 	 * `timeZone: 'UTC'`: the x values are UTC month starts, and formatting one back in local time
 	 * renders a January snapshot as "Dec" for every user west of Greenwich.
 	 */
-	import { Area, Axis, Chart, Spline, Svg } from 'layerchart';
+	import { Area, Axis, Chart, Circle, Spline, Svg } from 'layerchart';
 
 	import { DEFAULT_GROWTH_RATE } from '$lib/auto-invest.js';
 	import { DEFAULT_SCENARIO_SPREAD, forecastFromEntries } from '$lib/forecast.js';
 	import {
+		autoFilledPointCount,
 		forecastBandSeries,
 		netWorthChartMonthTicks,
 		netWorthChartXDomain,
@@ -78,6 +86,7 @@
 	const points = $derived(netWorthSeries(monthlyEntries));
 	const first = $derived(points[0]);
 	const latest = $derived(points.at(-1));
+	const autoFilledCount = $derived(autoFilledPointCount(points));
 
 	/**
 	 * The projection behind the overlay, or `null` when there is nothing to project from or the user
@@ -381,9 +390,86 @@
 						{/if}
 
 						<Spline stroke="hsl(var(--chart-1))" strokeWidth={2} />
+
+						<!-- One marker per recorded month, read off the same `points` array the line itself
+						     draws from — the forecast is a projection, not a recorded month, so it gets no
+						     markers. Identity is never colour alone (see the legend above): a recorded month is
+						     a filled dot, an auto-filled one a hollow ring, and `fill` is given as a function so
+						     both shapes come off one `Circle` in data mode rather than a second pass over the
+						     points for the auto-filled subset. -->
+						<Circle
+							data={points}
+							cx={(/** @type {import('$lib/net-worth.js').NetWorthPoint} */ point) => point.date}
+							cy={(/** @type {import('$lib/net-worth.js').NetWorthPoint} */ point) =>
+								point.net_worth}
+							r={4}
+							fill={(/** @type {import('$lib/net-worth.js').NetWorthPoint} */ point) =>
+								point.auto_filled ? 'hsl(var(--card))' : 'hsl(var(--chart-1))'}
+							stroke="hsl(var(--chart-1))"
+							strokeWidth={2}
+						/>
 					</Svg>
 				</Chart>
 			</div>
+
+			{#if autoFilledCount > 0}
+				<p class="text-xs text-muted-foreground mt-1" style="margin-top: 0.25rem">
+					{autoFilledCount} of the {points.length} month{points.length === 1 ? '' : 's'} shown
+					{autoFilledCount === 1 ? 'was' : 'were'} auto-filled by the auto-invest projection below, rather
+					than recorded by hand — shown as a hollow marker rather than a filled one.
+				</p>
+			{/if}
+		{/if}
+
+		<!-- The accessibility fallback for the SVG line above: the same `points` array as text, so a
+		     screen reader or a printout gets every recorded month's figures rather than the `aria-label`
+		     summary's shape-of-the-line sentence alone. Shown whenever there is a recorded month to list,
+		     independent of `hasPlot` — a single recorded month with the forecast switched off draws no
+		     line at all, but it is still one row this table can give a reader that the headline figure
+		     above does not: which month it was auto-filled or not. -->
+		{#if points.length > 0}
+			<details class="text-sm mt-2" style="margin-top: 0.5rem">
+				<summary class="cursor-pointer text-muted-foreground" style="cursor: pointer">
+					Show as a table
+				</summary>
+				<div class="overflow-x-auto mt-2" style="overflow-x: auto; margin-top: 0.5rem">
+					<table class="w-full text-sm tabular-nums" style="width: 100%; border-collapse: collapse">
+						<thead>
+							<tr>
+								<th scope="col" style="text-align: left; padding: 0.25rem 0.5rem">Month</th>
+								<th scope="col" style="text-align: right; padding: 0.25rem 0.5rem">Investments</th>
+								<th scope="col" style="text-align: right; padding: 0.25rem 0.5rem">Debts</th>
+								<th scope="col" style="text-align: right; padding: 0.25rem 0.5rem">Net worth</th>
+								<th scope="col" style="text-align: left; padding: 0.25rem 0.5rem">Auto-filled</th>
+							</tr>
+						</thead>
+						<tbody>
+							{#each points as point (point.date.getTime())}
+								<tr>
+									<th
+										scope="row"
+										style="text-align: left; padding: 0.25rem 0.5rem; font-weight: normal"
+									>
+										{formatMonth(point)}
+									</th>
+									<td style="text-align: right; padding: 0.25rem 0.5rem"
+										>{formatMoney(point.investments)}</td
+									>
+									<td style="text-align: right; padding: 0.25rem 0.5rem"
+										>{formatMoney(point.debts)}</td
+									>
+									<td style="text-align: right; padding: 0.25rem 0.5rem"
+										>{formatMoney(point.net_worth)}</td
+									>
+									<td style="text-align: left; padding: 0.25rem 0.5rem"
+										>{point.auto_filled ? 'Yes' : 'No'}</td
+									>
+								</tr>
+							{/each}
+						</tbody>
+					</table>
+				</div>
+			</details>
 		{/if}
 	{/if}
 </Card>
