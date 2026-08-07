@@ -1,118 +1,17 @@
-<script>
+<script module>
 	/**
-	 * The net worth chart — README.md → "Net Worth Tracking": "Net worth chart: tracked line +
-	 * realistic/optimistic/pessimistic forecast lines with shaded confidence band" (issues #67 and
-	 * #81).
+	 * The words the hover tooltip says, and the formatters that produce them — issue #87.
 	 *
-	 * #67 built the tracked line: the months the user actually recorded, one hue, one spline. #81
-	 * adds the forecast overlay in a second hue — the realistic scenario solid, the pessimistic and
-	 * optimistic scenarios dashed, and the confidence band shaded between them — projected from the
-	 * latest snapshot by `$lib/forecast.js` and reshaped for plotting by `$lib/net-worth.js`. That is
-	 * why this composes LayerChart's primitives (`Chart` / `Svg` / `Axis` / `Area` / `Spline`) rather
-	 * than the `LineChart` wrapper: five marks share one plot area, one pair of accessors and one
-	 * pair of scales.
+	 * This lives in a `<script module>` block for two reasons. First, it is testable: a tooltip with
+	 * no pointer over it renders as nothing at all under `svelte/server`, so there is no markup to
+	 * assert and the only way to cover the reading is to lift it out as a pure function. Second, the
+	 * `Intl` formatters below depend on no prop, so one per app beats one per mounted chart —
+	 * constructing an `Intl.NumberFormat` is not free and the instance script runs once per instance.
 	 *
-	 * #82 adds the static presentation layer on top: a `Circle` marker per recorded month — hollow for
-	 * an auto-filled one, filled for a hand-recorded one, so the distinction is shape rather than
-	 * colour — a caption under the chart naming that shape in words, and a `<details>` "Show as a
-	 * table" fallback reading the same `points` array as text. All three read off `netWorthSeries(...)`
-	 * alone; the forecast band gets no markers, since it is a projection rather than a set of recorded
-	 * months.
-	 *
-	 * Still missing, and #85's rather than this component's: the hover tooltip, the crosshair/point
-	 * highlight, and theming LayerChart's own chrome off this app's shadcn tokens (it ships a
-	 * `layerchart/styles/shadcn-svelte.css` bridge). Nothing here imports that sheet; the axis rule,
-	 * ticks and gridlines are given explicit token colours instead, and everything else inherits
-	 * `currentColor` from the container. Until #85 lands the chart carries an `aria-label` summarising
-	 * what the lines do — a summary rather than the data, which is what the table fallback below is
-	 * for.
-	 *
-	 * All the arithmetic lives in `$lib/net-worth.js` and `$lib/forecast.js` — this component decides
-	 * only how the series look. Note in particular that both date formatters below are pinned to
-	 * `timeZone: 'UTC'`: the x values are UTC month starts, and formatting one back in local time
-	 * renders a January snapshot as "Dec" for every user west of Greenwich.
+	 * Both date formatters are pinned to `timeZone: 'UTC'`: the x values are UTC month starts
+	 * (`$lib/net-worth.js` convention 4), and formatting one back in local time renders a January
+	 * snapshot as "Dec" for every user west of Greenwich.
 	 */
-	import { Area, Axis, Chart, Circle, Spline, Svg } from 'layerchart';
-
-	import { DEFAULT_GROWTH_RATE } from '$lib/auto-invest.js';
-	import { DEFAULT_SCENARIO_SPREAD, forecastFromEntries } from '$lib/forecast.js';
-	import {
-		autoFilledPointCount,
-		forecastBandSeries,
-		netWorthChartMonthTicks,
-		netWorthChartXDomain,
-		netWorthChartYExtent,
-		netWorthSeries
-	} from '$lib/net-worth.js';
-	import Card from './ui/card.svelte';
-
-	/**
-	 * @type {{
-	 * 	monthlyEntries?: import('$lib/types.js').MonthlyEntry[],
-	 * 	growthRate?: number,
-	 * 	spread?: number,
-	 * 	forecastYears?: number,
-	 * 	showForecast?: boolean
-	 * }}
-	 */
-	let {
-		monthlyEntries = [],
-		growthRate = DEFAULT_GROWTH_RATE,
-		spread = DEFAULT_SCENARIO_SPREAD,
-		forecastYears = 10,
-		showForecast = true
-	} = $props();
-
-	/**
-	 * Horizons the picker offers. Not spec — README.md gives the forecast no horizon list — but a
-	 * fixed handful beats a free-text field here: this chart has to show a recorded history and a
-	 * projection in one plot, and at 30 years a two-year history is four pixels wide. The forecast
-	 * *tab* is where an arbitrary horizon belongs (`ForecastProjections` has the number field), so
-	 * this is a zoom control rather than a second set of assumptions.
-	 */
-	const FORECAST_HORIZONS = Object.freeze([5, 10, 20, 30]);
-
-	// Per-instance, because a hard-coded `id` would collide the moment a second chart appears on a
-	// page — and a duplicated `id` silently re-points the first label at the wrong control.
-	const uid = $props.id();
-
-	// The props seed both controls once; from then on the user owns them, exactly as
-	// `ForecastProjections` treats its own assumptions.
-	// svelte-ignore state_referenced_locally
-	let forecastOn = $state(showForecast);
-	// svelte-ignore state_referenced_locally
-	let horizon = $state(forecastYears);
-
-	const points = $derived(netWorthSeries(monthlyEntries));
-	const first = $derived(points[0]);
-	const latest = $derived(points.at(-1));
-	const autoFilledCount = $derived(autoFilledPointCount(points));
-
-	/**
-	 * The projection behind the overlay, or `null` when there is nothing to project from or the user
-	 * has switched it off. `forecastFromEntries` anchors on the latest recorded month itself, so the
-	 * forecast's first point is the tracked line's last point to the penny and the two join without a
-	 * step — see `$lib/net-worth.js` → `forecastBandSeries`.
-	 */
-	const forecast = $derived.by(() => {
-		if (!forecastOn || points.length === 0) return null;
-		return forecastFromEntries(
-			monthlyEntries,
-			{ months: Math.round(Number(horizon) * 12), spread },
-			{ growthRate }
-		);
-	});
-
-	const band = $derived(forecastBandSeries(forecast));
-
-	const xDomain = $derived(netWorthChartXDomain(points, band));
-	const yDomain = $derived(netWorthChartYExtent(points, band));
-	const xTicks = $derived(netWorthChartMonthTicks(points, band));
-
-	// A spline needs two points to run between. One recorded month draws nothing on its own — but one
-	// recorded month plus a forecast draws the whole overlay from it, which is the case #67 could not
-	// plot and this issue can.
-	const hasPlot = $derived(points.length >= 2 || band.length >= 2);
 
 	const currencyFormatter = new Intl.NumberFormat('en-GB', {
 		style: 'currency',
@@ -168,6 +67,199 @@
 	function formatRate(rate) {
 		return `${Math.round(rate * 10) / 10}%`;
 	}
+
+	/**
+	 * One line of the hover tooltip.
+	 *
+	 * @typedef {object} NetWorthTooltipRow
+	 * @property {string} label What the figure is.
+	 * @property {string} value The figure, already formatted.
+	 * @property {string} [color] A swatch colour, given only where the row corresponds to something
+	 *   drawn on the chart — so the dot means "this is that line", not "this is a third series".
+	 */
+
+	/**
+	 * What the tooltip reads out for one hovered month.
+	 *
+	 * @typedef {object} NetWorthTooltipReading
+	 * @property {string} heading The month, and whether it was auto-filled.
+	 * @property {NetWorthTooltipRow[]} rows Net worth first, then what it is made of.
+	 */
+
+	/**
+	 * The hovered month, in words — issue #87's hover tooltip.
+	 *
+	 * Net worth leads because it is the figure the line plots; investments and debts follow because
+	 * they are what it is made of. A reading that gave only the difference would make a £5,000 month
+	 * look the same whether it is £5,000 of holdings or £305,000 against a £300,000 debt.
+	 *
+	 * The heading names an auto-filled month in words. #82 draws that distinction as a hollow marker,
+	 * but a shape only means something to a reader who has already decoded the legend, and the
+	 * tooltip is the one place the chart can spell it out at the moment it is being asked about.
+	 *
+	 * `null` out for anything that is not a recorded month — no point hovered, or (the failure this
+	 * function is the last guard against) a datum from some other series that has no `net_worth` on
+	 * it. A tooltip that says nothing is better than one that says `£NaN`; see the component's
+	 * two-`<Chart>` split below for why such a datum should never reach here in the first place.
+	 *
+	 * @param {import('$lib/net-worth.js').NetWorthPoint | null | undefined} point
+	 * @returns {NetWorthTooltipReading | null}
+	 */
+	export function netWorthTooltipReading(point) {
+		if (!point || typeof point.net_worth !== 'number' || Number.isNaN(point.net_worth)) return null;
+
+		return {
+			heading: point.auto_filled ? `${formatMonth(point)} · auto-filled` : `${formatMonth(point)}`,
+			rows: [
+				{ label: 'Net worth', value: formatMoney(point.net_worth), color: 'hsl(var(--chart-1))' },
+				{ label: 'Investments', value: formatMoney(point.investments) },
+				{ label: 'Debts', value: formatMoney(point.debts) }
+			]
+		};
+	}
+</script>
+
+<script>
+	/**
+	 * The net worth chart — README.md → "Net Worth Tracking": "Net worth chart: tracked line +
+	 * realistic/optimistic/pessimistic forecast lines with shaded confidence band" (issues #67 and
+	 * #81).
+	 *
+	 * #67 built the tracked line: the months the user actually recorded, one hue, one spline. #81
+	 * adds the forecast overlay in a second hue — the realistic scenario solid, the pessimistic and
+	 * optimistic scenarios dashed, and the confidence band shaded between them — projected from the
+	 * latest snapshot by `$lib/forecast.js` and reshaped for plotting by `$lib/net-worth.js`. That is
+	 * why this composes LayerChart's primitives (`Chart` / `Svg` / `Axis` / `Area` / `Spline`) rather
+	 * than the `LineChart` wrapper: five marks share one plot area, one pair of accessors and one
+	 * pair of scales.
+	 *
+	 * #82 adds the static presentation layer on top: a `Circle` marker per recorded month — hollow for
+	 * an auto-filled one, filled for a hand-recorded one, so the distinction is shape rather than
+	 * colour — a caption under the chart naming that shape in words, and a `<details>` "Show as a
+	 * table" fallback reading the same `points` array as text. All three read off `netWorthSeries(...)`
+	 * alone; the forecast band gets no markers, since it is a projection rather than a set of recorded
+	 * months.
+	 *
+	 * #85 mapped LayerChart's own chrome — axis rule, ticks, gridlines, crosshair, tooltip popover —
+	 * onto this app's tokens in `src/app.css`, so everything the library draws that is not a series
+	 * follows the light/`.dark` themes rather than its defaults. Nothing here imports the
+	 * `layerchart/styles/shadcn-svelte.css` bridge; the axis rule, ticks and gridlines are given
+	 * explicit token colours, and the hover layer below inherits the rest.
+	 *
+	 * #87 adds that hover layer: a `bisect-x` tooltip naming the hovered month, its net worth, and
+	 * the investments and debts that net worth is made of, plus a `<Highlight>` crosshair and dot
+	 * saying where the pointer is. The tooltip's words are `netWorthTooltipReading` in the module
+	 * block above; the chart carries an `aria-label` summarising what the lines do, and the hover
+	 * layer is a pointer affordance on top of that rather than a replacement for it — a screen reader
+	 * gets the summary and the table fallback at the bottom of this file.
+	 *
+	 * **Why two `<Chart>` elements rather than one.** A chart hit-tests against `flatData`, which is
+	 * its own `data` *plus the data of every mark given its own `data` prop*. Drawn as one chart,
+	 * `bisect-x` would therefore search the tracked months followed by three copies of the forecast
+	 * band — an array that is neither sorted nor of one shape — and hand the tooltip a band point,
+	 * which has `low`/`mid`/`high` where the reading wants `net_worth`: `£NaN` in the tooltip and no
+	 * crosshair dot at all, since a `y` accessor returning `undefined` gives it no coordinate to sit
+	 * at. Naming the band marks as a series fixes `flatData`, but a chart that has *any* series makes
+	 * `<Highlight points>` look for the hovered value on a series rather than on the hovered datum,
+	 * and the forecast series has no value at a tracked month — so the dot stays missing.
+	 *
+	 * So the forecast band gets its own stacked chart, leaving the interactive one with a single
+	 * sorted series and no marks carrying their own data — the shape both `bisect-x` and
+	 * `<Highlight>` are built for. The two are absolutely positioned in one `position: relative`
+	 * wrapper and handed the same frozen padding and the same domains, so they line up to the pixel.
+	 *
+	 * All the arithmetic lives in `$lib/net-worth.js` and `$lib/forecast.js` — this component decides
+	 * only how the series look, and the formatters it decides them with are in the module block.
+	 */
+	import { Area, Axis, Chart, Circle, Highlight, Spline, Svg, Tooltip } from 'layerchart';
+
+	import { DEFAULT_GROWTH_RATE } from '$lib/auto-invest.js';
+	import { DEFAULT_SCENARIO_SPREAD, forecastFromEntries } from '$lib/forecast.js';
+	import {
+		autoFilledPointCount,
+		forecastBandSeries,
+		netWorthChartMonthTicks,
+		netWorthChartXDomain,
+		netWorthChartYExtent,
+		netWorthSeries
+	} from '$lib/net-worth.js';
+	import Card from './ui/card.svelte';
+
+	/**
+	 * @type {{
+	 * 	monthlyEntries?: import('$lib/types.js').MonthlyEntry[],
+	 * 	growthRate?: number,
+	 * 	spread?: number,
+	 * 	forecastYears?: number,
+	 * 	showForecast?: boolean
+	 * }}
+	 */
+	let {
+		monthlyEntries = [],
+		growthRate = DEFAULT_GROWTH_RATE,
+		spread = DEFAULT_SCENARIO_SPREAD,
+		forecastYears = 10,
+		showForecast = true
+	} = $props();
+
+	/**
+	 * Horizons the picker offers. Not spec — README.md gives the forecast no horizon list — but a
+	 * fixed handful beats a free-text field here: this chart has to show a recorded history and a
+	 * projection in one plot, and at 30 years a two-year history is four pixels wide. The forecast
+	 * *tab* is where an arbitrary horizon belongs (`ForecastProjections` has the number field), so
+	 * this is a zoom control rather than a second set of assumptions.
+	 */
+	const FORECAST_HORIZONS = Object.freeze([5, 10, 20, 30]);
+
+	/**
+	 * The plot area's inset, shared by both stacked charts — frozen, and one object rather than two
+	 * literals, because the two charts only line up if they reserve exactly the same room for the
+	 * axes. A second literal with the same numbers in it would line up today and drift the first time
+	 * one of them was edited.
+	 */
+	const CHART_PADDING = Object.freeze({ top: 8, right: 32, bottom: 24, left: 56 });
+
+	// Per-instance, because a hard-coded `id` would collide the moment a second chart appears on a
+	// page — and a duplicated `id` silently re-points the first label at the wrong control.
+	const uid = $props.id();
+
+	// The props seed both controls once; from then on the user owns them, exactly as
+	// `ForecastProjections` treats its own assumptions.
+	// svelte-ignore state_referenced_locally
+	let forecastOn = $state(showForecast);
+	// svelte-ignore state_referenced_locally
+	let horizon = $state(forecastYears);
+
+	const points = $derived(netWorthSeries(monthlyEntries));
+	const first = $derived(points[0]);
+	const latest = $derived(points.at(-1));
+	const autoFilledCount = $derived(autoFilledPointCount(points));
+
+	/**
+	 * The projection behind the overlay, or `null` when there is nothing to project from or the user
+	 * has switched it off. `forecastFromEntries` anchors on the latest recorded month itself, so the
+	 * forecast's first point is the tracked line's last point to the penny and the two join without a
+	 * step — see `$lib/net-worth.js` → `forecastBandSeries`.
+	 */
+	const forecast = $derived.by(() => {
+		if (!forecastOn || points.length === 0) return null;
+		return forecastFromEntries(
+			monthlyEntries,
+			{ months: Math.round(Number(horizon) * 12), spread },
+			{ growthRate }
+		);
+	});
+
+	const band = $derived(forecastBandSeries(forecast));
+
+	const xDomain = $derived(netWorthChartXDomain(points, band));
+	const yDomain = $derived(netWorthChartYExtent(points, band));
+	const xTicks = $derived(netWorthChartMonthTicks(points, band));
+
+	// A spline needs two points to run between. One recorded month draws nothing on its own — but one
+	// recorded month plus a forecast draws the whole overlay from it, which is the case #67 could not
+	// plot and this issue can.
+	const hasPlot = $derived(points.length >= 2 || band.length >= 2);
 
 	const bandEnd = $derived(band.at(-1) ?? null);
 
@@ -329,87 +421,160 @@
 			     class. It currently does not — the app's `app.css` still uses v3's `@tailwind`
 			     directives under Tailwind v4, so most utilities never reach the page. That is a
 			     pre-existing, app-wide problem and its own issue; this component just declines to be
-			     broken by it. -->
+			     broken by it.
+
+			     `position: relative` is the other declaration this element cannot do without: the two
+			     charts inside it are absolutely positioned on top of each other, and without a
+			     positioned ancestor they would escape to the nearest one and land somewhere else on
+			     the page entirely. -->
 			<div
 				class="w-full"
-				style="height: 18rem; color: hsl(var(--muted-foreground))"
+				style="position: relative; height: 18rem; color: hsl(var(--muted-foreground))"
 				role="img"
 				aria-label={summary}
 			>
-				<Chart
-					data={points}
-					x={(/** @type {{ date: Date }} */ point) => point.date}
-					y={(/** @type {import('$lib/net-worth.js').NetWorthPoint} */ point) => point.net_worth}
-					{xDomain}
-					{yDomain}
-					padding={{ top: 8, right: 32, bottom: 24, left: 56 }}
-				>
-					<Svg>
-						<Axis
-							placement="left"
-							format={formatAxisMoney}
-							ticks={5}
-							grid={{ stroke: 'hsl(var(--border))' }}
-						/>
-						<Axis placement="bottom" ticks={xTicks} format={formatAxisMonth} rule />
+				<!-- The lower chart: everything the pointer does not interact with. First in the DOM so
+				     the grid and the shading paint *under* the tracked line, `tooltipContext={false}` so
+				     it runs no hit-testing of its own, and `pointer-events: none` so the pointer falls
+				     straight through to the interactive layer above. See the header comment for why the
+				     band is down here at all rather than drawn alongside the tracked line. -->
+				<div style="position: absolute; inset: 0; pointer-events: none">
+					<Chart
+						data={points}
+						x={(/** @type {{ date: Date }} */ point) => point.date}
+						y={(/** @type {import('$lib/net-worth.js').NetWorthPoint} */ point) => point.net_worth}
+						{xDomain}
+						{yDomain}
+						padding={CHART_PADDING}
+						tooltipContext={false}
+					>
+						<Svg>
+							<Axis
+								placement="left"
+								format={formatAxisMoney}
+								ticks={5}
+								grid={{ stroke: 'hsl(var(--border))' }}
+							/>
+							<Axis placement="bottom" ticks={xTicks} format={formatAxisMonth} rule />
 
-						<!-- Band first, so the four lines sit on top of the shading rather than under it.
-						     The fill, the two dashed edges and the realistic line are all read off one
-						     array (`band`) — the shading's edges and the outer scenario lines are the same
-						     numbers by construction, not two series that happen to agree. -->
-						{#if band.length >= 2}
-							<Area
-								data={band}
-								y0={(/** @type {{ low: number }} */ point) => point.low}
-								y1={(/** @type {{ high: number }} */ point) => point.high}
-								fill="hsl(var(--chart-2) / 0.16)"
-							/>
-							<Spline
-								data={band}
-								y={(/** @type {{ low: number }} */ point) => point.low}
-								stroke="hsl(var(--chart-2))"
-								strokeWidth={1}
-								stroke-dasharray="3 3"
-								opacity={0.8}
-							/>
-							<Spline
-								data={band}
-								y={(/** @type {{ high: number }} */ point) => point.high}
-								stroke="hsl(var(--chart-2))"
-								strokeWidth={1}
-								stroke-dasharray="3 3"
-								opacity={0.8}
-							/>
-							<Spline
-								data={band}
-								y={(/** @type {{ mid: number }} */ point) => point.mid}
-								stroke="hsl(var(--chart-2))"
+							<!-- The fill, the two dashed edges and the realistic line are all read off one
+							     array (`band`) — the shading's edges and the outer scenario lines are the same
+							     numbers by construction, not two series that happen to agree. -->
+							{#if band.length >= 2}
+								<Area
+									data={band}
+									y0={(/** @type {{ low: number }} */ point) => point.low}
+									y1={(/** @type {{ high: number }} */ point) => point.high}
+									fill="hsl(var(--chart-2) / 0.16)"
+								/>
+								<Spline
+									data={band}
+									y={(/** @type {{ low: number }} */ point) => point.low}
+									stroke="hsl(var(--chart-2))"
+									strokeWidth={1}
+									stroke-dasharray="3 3"
+									opacity={0.8}
+								/>
+								<Spline
+									data={band}
+									y={(/** @type {{ high: number }} */ point) => point.high}
+									stroke="hsl(var(--chart-2))"
+									strokeWidth={1}
+									stroke-dasharray="3 3"
+									opacity={0.8}
+								/>
+								<Spline
+									data={band}
+									y={(/** @type {{ mid: number }} */ point) => point.mid}
+									stroke="hsl(var(--chart-2))"
+									strokeWidth={2}
+									stroke-dasharray="6 4"
+								/>
+							{/if}
+						</Svg>
+					</Chart>
+				</div>
+
+				<!-- The upper chart: the tracked line and everything the pointer talks to. Last in the
+				     DOM, so it is the layer the pointer lands on, and deliberately given nothing but
+				     `points` to hit-test against — no mark down here carries its own `data`, including
+				     the `Circle` below, which inherits the chart's rather than repeating every tracked
+				     month into the `flatData` that `bisect-x` searches. -->
+				<div style="position: absolute; inset: 0">
+					<Chart
+						data={points}
+						x={(/** @type {{ date: Date }} */ point) => point.date}
+						y={(/** @type {import('$lib/net-worth.js').NetWorthPoint} */ point) => point.net_worth}
+						{xDomain}
+						{yDomain}
+						padding={CHART_PADDING}
+						tooltipContext={{ mode: 'bisect-x' }}
+					>
+						<Svg>
+							<Spline stroke="hsl(var(--chart-1))" strokeWidth={2} />
+
+							<!-- One marker per recorded month, read off the same `points` array the line itself
+							     draws from — the forecast is a projection, not a recorded month, so it gets no
+							     markers. Identity is never colour alone (see the legend above): a recorded month is
+							     a filled dot, an auto-filled one a hollow ring, and `fill` is given as a function so
+							     both shapes come off one `Circle` in data mode rather than a second pass over the
+							     points for the auto-filled subset. -->
+							<Circle
+								cx={(/** @type {import('$lib/net-worth.js').NetWorthPoint} */ point) => point.date}
+								cy={(/** @type {import('$lib/net-worth.js').NetWorthPoint} */ point) =>
+									point.net_worth}
+								r={4}
+								fill={(/** @type {import('$lib/net-worth.js').NetWorthPoint} */ point) =>
+									point.auto_filled ? 'hsl(var(--card))' : 'hsl(var(--chart-1))'}
+								stroke="hsl(var(--chart-1))"
 								strokeWidth={2}
-								stroke-dasharray="6 4"
 							/>
-						{/if}
 
-						<Spline stroke="hsl(var(--chart-1))" strokeWidth={2} />
+							<!-- Last inside the `<Svg>`, so the crosshair and its dot sit on top of every line
+							     rather than under the one they are pointing at. Both are left in LayerChart's
+							     own chrome colours — `--color-primary` for the dot, `--color-surface-content`
+							     for the rule, the card surface for the dot's ring — which #85 mapped onto this
+							     app's tokens in `app.css`. Giving them a series hue instead would read as a
+							     third encoding of which series is which, when all they say is "the pointer is
+							     here". -->
+							<Highlight lines points />
+						</Svg>
 
-						<!-- One marker per recorded month, read off the same `points` array the line itself
-						     draws from — the forecast is a projection, not a recorded month, so it gets no
-						     markers. Identity is never colour alone (see the legend above): a recorded month is
-						     a filled dot, an auto-filled one a hollow ring, and `fill` is given as a function so
-						     both shapes come off one `Circle` in data mode rather than a second pass over the
-						     points for the auto-filled subset. -->
-						<Circle
-							data={points}
-							cx={(/** @type {import('$lib/net-worth.js').NetWorthPoint} */ point) => point.date}
-							cy={(/** @type {import('$lib/net-worth.js').NetWorthPoint} */ point) =>
-								point.net_worth}
-							r={4}
-							fill={(/** @type {import('$lib/net-worth.js').NetWorthPoint} */ point) =>
-								point.auto_filled ? 'hsl(var(--card))' : 'hsl(var(--chart-1))'}
-							stroke="hsl(var(--chart-1))"
-							strokeWidth={2}
-						/>
-					</Svg>
-				</Chart>
+						<!-- A sibling of `<Svg>`, not a child: `Tooltip.Root` renders a `<div>`, and LayerChart
+						     portals it to `<body>` so a chart inside an overflow-hidden card cannot clip it.
+						     That portal is why #85 themes `.lc-tooltip-root` in its own top-level rule rather
+						     than nesting it under `.lc-root-container`.
+
+						     `x="data"` snaps the popover horizontally onto the month it describes rather than
+						     letting it drift a few pixels off with the raw pointer; `y` stays on the pointer,
+						     so a reading near the top of the plot does not cover the line it is about.
+
+						     `aria-hidden`, because this is a pointer affordance inside a `role="img"`: it is
+						     not a route to the data for anyone who cannot hover, and the `aria-label` summary
+						     and the table fallback below are what serve that reader. -->
+						<Tooltip.Root
+							x="data"
+							props={{ root: { 'aria-hidden': 'true' }, container: {}, content: {} }}
+						>
+							{#snippet children({ data })}
+								{@const reading = netWorthTooltipReading(data)}
+								{#if reading}
+									<Tooltip.Header>{reading.heading}</Tooltip.Header>
+									<Tooltip.List>
+										{#each reading.rows as row (row.label)}
+											<Tooltip.Item
+												label={row.label}
+												value={row.value}
+												color={row.color}
+												valueAlign="right"
+											/>
+										{/each}
+									</Tooltip.List>
+								{/if}
+							{/snippet}
+						</Tooltip.Root>
+					</Chart>
+				</div>
 			</div>
 
 			{#if autoFilledCount > 0}
