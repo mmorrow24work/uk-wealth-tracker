@@ -296,6 +296,20 @@ export const PENSION_TYPE_LABELS = Object.freeze({
  */
 export const DEFINED_BENEFIT_PENSION_TYPES = Object.freeze(['db_final_salary', 'db_care']);
 
+/**
+ * The pot types the Pension tracker's add/edit form supports (issue #29) — every `PensionType`
+ * except `state`. State Pension has no pot to add by hand; it is derived from NI qualifying years
+ * instead, via a dedicated flow (#31 — UK State Pension projection from NI qualifying years).
+ * @type {readonly PensionType[]}
+ */
+export const PENSION_POT_TYPES = Object.freeze([
+	'dc_workplace',
+	'sipp',
+	'db_final_salary',
+	'db_care',
+	'lisa'
+]);
+
 /* -------------------------------------------------------------------------- */
 /* Property                                                                    */
 /* -------------------------------------------------------------------------- */
