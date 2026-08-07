@@ -5,39 +5,23 @@
 	import AutoInvestFill from '../components/AutoInvestFill.svelte';
 	import DebtTracker from '../components/DebtTracker.svelte';
 	import InvestmentHoldings from '../components/InvestmentHoldings.svelte';
-	import {
-		appData,
-		compareMonthlyEntries,
-		getPersistenceMode,
-		hydrateAppData,
-		syncState
-	} from '$lib/index.js';
+	import { appData, getPersistenceMode, hydrateAppData, syncState } from '$lib/index.js';
 
 	// `activityLog` and `monthlyEntries` map onto `AppData.activity_log`/`.monthly_entries` directly,
 	// so the store (#5) owns them: hydrated from it on mount below, and — once `ready` — every local
 	// change is written back into the store, whose own debounced sync then persists it to the Gist
 	// (or the localStorage fallback). `ready` guards against the pre-hydrate `[]` these start as
 	// overwriting whatever was actually stored.
+	//
+	// `debts` has no top-level home in `AppData` any more than `investments` does — both nest per
+	// month inside `monthly_entries` (see `$lib/types.js`) — so `InvestmentHoldings` (#8) and
+	// `DebtTracker` (#68) both bind straight to `monthlyEntries` below rather than either taking its
+	// own top-level array prop.
 	/** @type {import('$lib/types.js').ActivityLogEntry[]} */
 	let activityLog = $state([]);
 	/** @type {import('$lib/types.js').MonthlyEntry[]} */
 	let monthlyEntries = $state([]);
 	let ready = $state(false);
-
-	// `debts` has no top-level home in `AppData` — the schema only nests it per month inside
-	// `monthly_entries` (see `$lib/types.js`) — so, unlike `monthlyEntries` above, it stays
-	// session-only local state until #68 (debt entry, kept separate from this issue's investment
-	// holdings form) gives it a real per-month shape to write into the store.
-	/** @type {import('$lib/types.js').Debt[]} */
-	let debts = $state([]);
-
-	// The D/I ratio (`DebtTracker`) compares debts against the *latest recorded* month's holdings —
-	// `InvestmentHoldings` (issue #8) writes those straight into `monthlyEntries` above, so this is
-	// derived rather than its own state.
-	/** @type {import('$lib/types.js').Investment[]} */
-	const investments = $derived(
-		[...monthlyEntries].sort(compareMonthlyEntries).at(-1)?.investments ?? []
-	);
 
 	onMount(async () => {
 		await hydrateAppData();
@@ -73,6 +57,6 @@
 
 <div class="mt-6 flex max-w-2xl flex-col gap-6">
 	<InvestmentHoldings bind:monthlyEntries bind:activityLog />
-	<DebtTracker {investments} bind:debts bind:activityLog />
+	<DebtTracker bind:monthlyEntries bind:activityLog />
 	<AutoInvestFill bind:monthlyEntries growthRate={5} />
 </div>
