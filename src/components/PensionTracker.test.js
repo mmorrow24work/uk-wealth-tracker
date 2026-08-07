@@ -1,5 +1,5 @@
 /**
- * Server-rendered smoke tests for the Pension tracker (issues #29 and #30).
+ * Server-rendered smoke tests for the Pension tracker (issues #29, #30 and #31's filtering).
  *
  * As `FireCalculator.test.js` documents: no browser test environment, so `svelte/server`'s
  * `render` covers the initial render only — what a user sees against a given `pensions` list,
@@ -146,6 +146,26 @@ describe('PensionTracker', () => {
 
 		expect(body).toContain('2 pots recorded');
 		expect(body).toContain('£30,000');
+	});
+
+	it('leaves the State Pension record out of the list entirely — it has its own card (#31)', () => {
+		const body = text({
+			pensions: [
+				createPension({ name: 'SIPP', type: 'sipp', value: 30_000 }),
+				createPension({ name: 'State Pension', type: 'state', ni_qualifying_years: 20 })
+			]
+		});
+
+		expect(body).toContain('1 pot recorded');
+		expect(body).not.toContain('State Pension');
+	});
+
+	it('shows the empty state when the only record is the State Pension', () => {
+		const body = text({
+			pensions: [createPension({ name: 'State Pension', type: 'state', ni_qualifying_years: 20 })]
+		});
+
+		expect(body).toContain('No pension pots recorded yet');
 	});
 
 	it('labels the submit button "Add pot" until a pot is being edited', () => {
