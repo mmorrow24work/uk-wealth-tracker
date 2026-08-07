@@ -11,6 +11,7 @@ import {
 	DEBT_TYPES,
 	DEBT_TYPE_LABELS,
 	DEFINED_BENEFIT_PENSION_TYPES,
+	DEFINED_CONTRIBUTION_PENSION_TYPES,
 	DIVIDEND_STRATEGIES,
 	DIVIDEND_STRATEGY_LABELS,
 	INVESTMENT_TYPES,
@@ -83,6 +84,7 @@ describe('enum subsets', () => {
 		['tax-sheltered wrappers', TAX_SHELTERED_WRAPPERS, WRAPPERS],
 		['cash investment types', CASH_INVESTMENT_TYPES, INVESTMENT_TYPES],
 		['defined benefit pension types', DEFINED_BENEFIT_PENSION_TYPES, PENSION_TYPES],
+		['defined contribution pension types', DEFINED_CONTRIBUTION_PENSION_TYPES, PENSION_TYPES],
 		['pension pot types', PENSION_POT_TYPES, PENSION_TYPES]
 	];
 
@@ -93,6 +95,16 @@ describe('enum subsets', () => {
 	it('excludes the State Pension from the pot tracker types', () => {
 		expect(PENSION_POT_TYPES).not.toContain('state');
 		expect(PENSION_POT_TYPES).toHaveLength(PENSION_TYPES.length - 1);
+	});
+
+	it('keeps the two pot-and-promise pension families apart', () => {
+		// Nothing is both, so the retirement income builder cannot count one pension twice.
+		for (const type of DEFINED_CONTRIBUTION_PENSION_TYPES) {
+			expect(DEFINED_BENEFIT_PENSION_TYPES).not.toContain(type);
+		}
+		// A Lifetime ISA is a pot, but a tax-free one — it belongs to the ISA stream, not drawdown.
+		expect(DEFINED_CONTRIBUTION_PENSION_TYPES).not.toContain('lisa');
+		expect(DEFINED_CONTRIBUTION_PENSION_TYPES).not.toContain('state');
 	});
 
 	it('lists all six UK ISA wrappers', () => {
