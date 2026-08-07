@@ -80,7 +80,21 @@ export * from './property.js';
 // deliberately share the same load/save function names and `export *` cannot resolve that.
 export * from './persistence.js';
 export { BrowserStorageError, browserStorageBackend, hasLocalStorage } from './browser-storage.js';
-export { GistError, isGistConfigured } from './gist.js';
+export {
+	GistError,
+	clearActiveGistId,
+	connectGitHubAccount,
+	describeGistTarget,
+	disconnectGitHubAccount,
+	gistWebUrl,
+	isGistConfigured,
+	normaliseGistId,
+	setActiveGistId
+} from './gist.js';
+
+// GitHub sign-in for Gist mode — the token and the account it belongs to, both browser-only. See
+// the connect page (`src/routes/connect/`) and its GitHubSignIn component.
+export * from './github-auth.js';
 
 // Global reactive app state — the shared store every feature tab should read/write against
 // instead of local component state. Hydrates from and syncs (debounced) to persistence.js.
