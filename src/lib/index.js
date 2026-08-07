@@ -49,6 +49,10 @@ export * from './marriage-allowance.js';
 // component.
 export * from './student-loan.js';
 
+// Salary sacrifice, and what it is worth against the 60% personal allowance taper (2026/27) — see
+// the Tax tab's SalarySacrifice component.
+export * from './salary-sacrifice.js';
+
 // GitHub Gist persistence — the only place any feature tab should read/write stored data from.
 export * from './gist.js';
 
