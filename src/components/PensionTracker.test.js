@@ -118,6 +118,27 @@ describe('PensionTracker', () => {
 		expect(body).toContain('£30,000');
 	});
 
+	it('keeps the State Pension record out of the pot list it shares an array with (#31)', () => {
+		const body = text({
+			pensions: [
+				createPension({ name: 'SIPP', type: 'sipp', value: 30_000 }),
+				createPension({ name: 'State Pension', type: 'state', ni_qualifying_years: 22 })
+			]
+		});
+
+		expect(body).toContain('1 pot recorded');
+		expect(body).toContain('£30,000');
+		expect(body).not.toContain('State Pension');
+	});
+
+	it('shows the empty state when the only record is the State Pension (#31)', () => {
+		const body = text({
+			pensions: [createPension({ name: 'State Pension', type: 'state', ni_qualifying_years: 22 })]
+		});
+
+		expect(body).toContain('No pension pots recorded yet');
+	});
+
 	it('labels the submit button "Add pot" until a pot is being edited', () => {
 		const body = text();
 		expect(body).toContain('Add pot');

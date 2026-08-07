@@ -57,6 +57,10 @@ export * from './student-loan.js';
 // the Tax tab's SalarySacrifice component.
 export * from './salary-sacrifice.js';
 
+// UK State Pension projected from NI qualifying years (2026/27) — see the Pensions tab's
+// StatePensionProjection component.
+export * from './state-pension.js';
+
 // GitHub Gist persistence — the only place any feature tab should read/write stored data from.
 export * from './gist.js';
 

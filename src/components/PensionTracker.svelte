@@ -4,8 +4,11 @@
 	 * Benefit (Final Salary / CARE), Lifetime ISA" and "Per-pot: value, contribution %, employer
 	 * contribution %, annual fund fee/OCF" (issue #29's exact scope). The State Pension is a
 	 * `PensionType` too (`$lib/enums.js`), but it has no pot to add by hand — it is derived from NI
-	 * qualifying years instead, via a dedicated flow (#31) — so `PENSION_POT_TYPES` (not the full
-	 * `PENSION_TYPES`) drives this form's type select.
+	 * qualifying years instead, in `StatePensionProjection.svelte` (#31) — so `PENSION_POT_TYPES`
+	 * (not the full `PENSION_TYPES`) drives this form's type select, and the list below renders
+	 * `potPensions(pensions)` rather than `pensions`: since #31 the same array can also hold the one
+	 * `state` record, which has no pot value, contribution or fee to summarise. Add/edit/remove still
+	 * operate on the whole array, so a State Pension record passes through this component untouched.
 	 *
 	 * Unlike `InvestmentHoldings`/`DebtTracker`, pension pots are not re-stated per month: README.md's
 	 * data model outline puts `pensions[]` directly on `AppData`, one flat list rather than nested in
@@ -30,6 +33,7 @@
 		PENSION_TYPE_LABELS
 	} from '$lib/enums.js';
 	import { createPension } from '$lib/model.js';
+	import { potPensions } from '$lib/state-pension.js';
 	import Card from './ui/card.svelte';
 	import Button from './ui/button.svelte';
 
@@ -54,7 +58,10 @@
 		return DEFINED_BENEFIT_PENSION_TYPES.includes(type);
 	}
 
-	const totalPotValue = $derived(pensions.reduce((sum, pension) => sum + pension.value, 0));
+	// The pots this form is about — everything except the State Pension record #31 keeps in the same
+	// array. The count, the total and the list below all read this, not `pensions`.
+	const pots = $derived(potPensions(pensions));
+	const totalPotValue = $derived(pots.reduce((sum, pension) => sum + pension.value, 0));
 
 	/** @type {string | null} */
 	let editingId = $state(null);
@@ -138,17 +145,17 @@
 	<Card className="p-4">
 		<h2 class="text-lg font-semibold mb-3">Pension pots</h2>
 
-		{#if pensions.length === 0}
+		{#if pots.length === 0}
 			<p class="text-sm text-muted-foreground mb-4">No pension pots recorded yet. Add one below.</p>
 		{:else}
 			<p class="text-sm text-muted-foreground mb-3">
-				{pensions.length} pot{pensions.length === 1 ? '' : 's'} recorded, totalling {formatMoney(
+				{pots.length} pot{pots.length === 1 ? '' : 's'} recorded, totalling {formatMoney(
 					totalPotValue
 				)} of pot value.
 			</p>
 
 			<ul class="flex flex-col gap-2 mb-4 list-none p-0 m-0">
-				{#each pensions as pension (pension.id)}
+				{#each pots as pension (pension.id)}
 					<li
 						class="flex items-center justify-between gap-3 border border-border rounded-md px-3 py-2"
 					>

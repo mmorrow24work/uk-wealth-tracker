@@ -3,20 +3,35 @@
 	import { get } from 'svelte/store';
 
 	import PensionTracker from '../../components/PensionTracker.svelte';
-	import { appData, getPersistenceMode, hydrateAppData, syncState } from '$lib/index.js';
+	import StatePensionProjection from '../../components/StatePensionProjection.svelte';
+	import {
+		appData,
+		createProfile,
+		getPersistenceMode,
+		hydrateAppData,
+		syncState
+	} from '$lib/index.js';
 
 	// `pensions` maps onto `AppData.pensions` directly, so the store (#5) owns it — hydrated from it
 	// on mount below, and — once `ready` — every local change is written back into the store, whose
 	// own debounced sync then persists it to the Gist (or the localStorage fallback). `ready` guards
 	// against the pre-hydrate `[]` this starts as overwriting whatever was actually stored, the same
 	// pattern the dashboard's `+page.svelte` uses for `monthlyEntries`/`activityLog`.
+	//
+	// Both panels bind the same array: `PensionTracker` owns the pot records, `StatePensionProjection`
+	// (#31) owns the single `state` record holding the NI year counts. They stay out of each other's
+	// way by type — see `$lib/state-pension.js`'s `potPensions`/`findStatePension`.
 	/** @type {import('$lib/types.js').Pension[]} */
 	let pensions = $state([]);
+	/** @type {import('$lib/types.js').Profile} */
+	let profile = $state(createProfile());
 	let ready = $state(false);
 
 	onMount(async () => {
 		await hydrateAppData();
-		pensions = get(appData).pensions;
+		const data = get(appData);
+		pensions = data.pensions;
+		profile = data.profile;
 		ready = true;
 	});
 
@@ -29,8 +44,10 @@
 <h1>Pensions</h1>
 <p>
 	Pension pot tracking for DC Workplace, SIPP, Defined Benefit (Final Salary/CARE) and Lifetime ISA
-	pots. Defined Benefit income calculation (#30), the State Pension projection (#31), tax relief
-	display (#32) and the retirement income stream builder (#33) land in later builds.
+	pots, and your UK State Pension projected from the National Insurance years on your record — 35
+	qualifying years buys the full £241.30 a week for 2026/27, fewer pays a share of it, and under 10
+	pays nothing at all. Defined Benefit income calculation (#30), tax relief display (#32) and the
+	retirement income stream builder (#33) land in later builds.
 </p>
 <p class="text-sm text-muted-foreground">
 	{getPersistenceMode() === 'gist' ? 'Synced to your GitHub Gist' : 'Saved to this browser only'}.
@@ -38,9 +55,10 @@
 	{#if $syncState.error}<span class="text-red-600">Sync error: {$syncState.error}</span>{/if}
 </p>
 
-<div class="mt-6 max-w-2xl">
+<div class="mt-6 flex max-w-3xl flex-col gap-6">
 	{#if ready}
 		<PensionTracker bind:pensions />
+		<StatePensionProjection bind:pensions dobYear={profile.dob_year} dobMonth={profile.dob_month} />
 	{:else}
 		<p class="text-sm text-muted-foreground">Loading your saved data…</p>
 	{/if}
