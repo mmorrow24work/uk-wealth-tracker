@@ -25,6 +25,7 @@ import {
 	PAYMENTS_PER_YEAR,
 	PAYOUT_FREQUENCIES,
 	PAYOUT_FREQUENCY_LABELS,
+	PENSION_POT_TYPES,
 	PENSION_TYPES,
 	PENSION_TYPE_LABELS,
 	PROPERTY_TYPES,
@@ -81,11 +82,17 @@ describe('enum subsets', () => {
 		['ISA wrappers', ISA_WRAPPERS, WRAPPERS],
 		['tax-sheltered wrappers', TAX_SHELTERED_WRAPPERS, WRAPPERS],
 		['cash investment types', CASH_INVESTMENT_TYPES, INVESTMENT_TYPES],
-		['defined benefit pension types', DEFINED_BENEFIT_PENSION_TYPES, PENSION_TYPES]
+		['defined benefit pension types', DEFINED_BENEFIT_PENSION_TYPES, PENSION_TYPES],
+		['pension pot types', PENSION_POT_TYPES, PENSION_TYPES]
 	];
 
 	it.each(subsets)('%s are drawn from the parent enum', (_name, subset, parent) => {
 		for (const value of subset) expect(parent).toContain(value);
+	});
+
+	it('excludes the State Pension from the pot tracker types', () => {
+		expect(PENSION_POT_TYPES).not.toContain('state');
+		expect(PENSION_POT_TYPES).toHaveLength(PENSION_TYPES.length - 1);
 	});
 
 	it('lists all six UK ISA wrappers', () => {
