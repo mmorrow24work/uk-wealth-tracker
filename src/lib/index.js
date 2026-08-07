@@ -57,6 +57,10 @@ export * from './student-loan.js';
 // the Tax tab's SalarySacrifice component.
 export * from './salary-sacrifice.js';
 
+// Defined Benefit pension income from an accrual formula or a scheme statement — see the Pensions
+// tab's DefinedBenefitIncome component.
+export * from './defined-benefit.js';
+
 // GitHub Gist persistence — the only place any feature tab should read/write stored data from.
 export * from './gist.js';
 
