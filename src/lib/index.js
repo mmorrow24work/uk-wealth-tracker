@@ -31,6 +31,9 @@ export * from './compounding.js';
 // Market-crash overlay on a forecast — see the Forecast tab's StressTestPanel component.
 export * from './stress-test.js';
 
+// FIRE / Coast FIRE maths — see the Retirement tab's FireCalculator component.
+export * from './fire.js';
+
 // GitHub Gist persistence — the only place any feature tab should read/write stored data from.
 export * from './gist.js';
 
