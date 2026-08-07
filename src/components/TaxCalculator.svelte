@@ -11,14 +11,25 @@
 	 *
 	 * The salary and region are seeded from `profile.gross_salary`/`profile.tax_region` where the
 	 * profile has them, then owned by the user for this page session only — nothing is written back,
-	 * the same convention the forecast and retirement tabs' controls follow.
+	 * the same convention the forecast and retirement tabs' controls follow. Salary sacrifice (#27)
+	 * is seeded the same way, from `profile.pension_pct` of that salary.
+	 *
+	 * Salary sacrifice is owned *here* rather than in its own card, unlike every other card-local
+	 * input on this tab: sacrificed pay is never the employee's income, so the reduced figure — not
+	 * the salary typed above it — is what the bands, the allowance taper, the Child Benefit charge
+	 * and any Student Loan repayment all have to be worked on. `adjustedNetIncome` is therefore
+	 * computed once here and passed to every card, which is what turns #23's "enter income already
+	 * net of any salary sacrifice" instruction into arithmetic. `SalarySacrifice.svelte` explains
+	 * what the sacrifice bought and takes the amount as a `$bindable` so its one action — sacrifice
+	 * exactly enough to clear the 60% taper — can write back to it.
 	 *
 	 * "Take-home" here is gross less *income tax* only. National Insurance is not modelled (it
-	 * appears nowhere in README.md's spec and has no issue in the tax milestone), and salary
-	 * sacrifice (#27) is its own issue — so every figure is labelled for what it is rather than
-	 * presented as net pay. Student Loan repayments (#26) are modelled, but in their own card below
-	 * rather than folded into this figure, the same reason HICBC and Marriage Allowance are separate
-	 * cards: this tile stays "income tax alone" so it means the same thing on every tab.
+	 * appears nowhere in README.md's spec and has no issue in the tax milestone) — so every figure is
+	 * labelled for what it is rather than presented as net pay, and the salary sacrifice card's
+	 * saving is understated for the same reason. Student Loan repayments (#26) are modelled, but in
+	 * their own card below rather than folded into this figure, the same reason HICBC and Marriage
+	 * Allowance are separate cards: this tile stays "income tax alone" so it means the same thing on
+	 * every tab.
 	 *
 	 * The High Income Child Benefit Charge (#24) and Marriage Allowance (#25) are rendered here as
 	 * two further cards rather than on the page beside this one, because both are assessed on the
@@ -44,9 +55,11 @@
 		TAX_YEAR,
 		takeHomeBreakdown
 	} from '$lib/tax.js';
+	import { cappedSacrifice, sacrificeFromPercent } from '$lib/salary-sacrifice.js';
 	import Card from './ui/card.svelte';
 	import ChildBenefitCharge from './ChildBenefitCharge.svelte';
 	import MarriageAllowance from './MarriageAllowance.svelte';
+	import SalarySacrifice from './SalarySacrifice.svelte';
 	import StudentLoanRepayment from './StudentLoanRepayment.svelte';
 
 	/** @type {{ profile?: import('$lib/types.js').Profile }} */
@@ -68,6 +81,16 @@
 	let region = $state(profile.tax_region);
 
 	/**
+	 * Opened from the profile's own pension contribution percentage, which is the only thing the data
+	 * model knows about a workplace scheme (README.md's `profile.pension_pct`). It doesn't record
+	 * *how* that contribution is made, and only a sacrifice arrangement genuinely removes the pay from
+	 * income — so this is a starting figure to correct, not a claim about the user's scheme. `0` for
+	 * the great majority of profiles, where `pension_pct` is its default zero.
+	 */
+	// svelte-ignore state_referenced_locally
+	let sacrifice = $state(sacrificeFromPercent(profile.gross_salary, profile.pension_pct));
+
+	/**
 	 * `bind:value` on a number input hands back a number, or `null` once the field is cleared.
 	 *
 	 * @param {unknown} value
@@ -83,10 +106,20 @@
 	const parsedIncome = $derived(parse(income, Number.NaN));
 	const incomeIsValid = $derived(parsedIncome >= 0 && parsedIncome <= 1e9);
 
-	const result = $derived(
-		incomeIsValid ? takeHomeBreakdown({ income: parsedIncome, region }) : null
+	/**
+	 * What is actually taxed: the salary less anything sacrificed out of it, clamped so the field
+	 * can't be typed past the salary. Every card on this tab is handed this figure rather than the
+	 * salary above it — see the header note.
+	 */
+	const sacrificed = $derived(
+		incomeIsValid ? cappedSacrifice(parsedIncome, Math.max(0, parse(sacrifice, 0))) : 0
 	);
-	const comparison = $derived(incomeIsValid ? compareRegions(parsedIncome) : null);
+	const adjustedNetIncome = $derived(incomeIsValid ? parsedIncome - sacrificed : Number.NaN);
+
+	const result = $derived(
+		incomeIsValid ? takeHomeBreakdown({ income: adjustedNetIncome, region }) : null
+	);
+	const comparison = $derived(incomeIsValid ? compareRegions(adjustedNetIncome) : null);
 	const otherRegion = $derived(region === 'scotland' ? 'england_wales_ni' : 'scotland');
 
 	/**
@@ -143,12 +176,15 @@
 	<p class="text-sm text-muted-foreground mb-4">
 		Your salary climbs a ladder of bands, and each band taxes only the slice of income that lands
 		inside it — so a raise into the higher rate never taxes the pounds below it any harder. Scotland
-		sets its own rates and bands; the personal allowance is UK-wide.
+		sets its own rates and bands; the personal allowance is UK-wide. Anything given up through
+		salary sacrifice comes off before the climb starts.
 	</p>
 
 	<div class="flex flex-wrap items-end gap-4 mb-4">
 		<div class="flex flex-col gap-1">
-			<span id="tax-income-label" class="text-sm font-medium">Gross annual income (£)</span>
+			<span id="tax-income-label" class="text-sm font-medium">
+				Gross annual salary (£, before sacrifice)
+			</span>
 			<div class="flex items-center gap-2">
 				<input
 					type="range"
@@ -172,6 +208,18 @@
 		</div>
 
 		<div class="flex flex-col gap-1">
+			<label class="text-sm font-medium" for="tax-sacrifice">Salary sacrifice (£/yr)</label>
+			<input
+				id="tax-sacrifice"
+				type="number"
+				min="0"
+				step="500"
+				bind:value={sacrifice}
+				class="border border-input rounded-md px-2 py-1.5 text-sm w-32"
+			/>
+		</div>
+
+		<div class="flex flex-col gap-1">
 			<label class="text-sm font-medium" for="tax-region">Where you live</label>
 			<select
 				id="tax-region"
@@ -188,6 +236,15 @@
 	{#if !incomeIsValid}
 		<p class="text-sm text-red-600 mb-4">Enter a gross income of £0 or more.</p>
 	{:else if result}
+		{#if sacrificed > 0}
+			<p class="text-sm mb-4">
+				<span class="font-medium">{formatMoney(sacrificed)} sacrificed</span>, so everything below —
+				the bands, the allowance taper, and every card under this one — is worked out on
+				<span class="font-medium">{formatMoney(result.income)}</span>, not the
+				{formatMoney(parsedIncome)} above. The salary sacrifice card explains what that bought.
+			</p>
+		{/if}
+
 		<div class="flex flex-wrap gap-3 mb-4">
 			<div class="flex-1 min-w-44 rounded-md border border-border px-3 py-2">
 				<div class="text-sm font-medium">Income tax</div>
@@ -321,17 +378,19 @@
 
 		<p class="text-xs text-muted-foreground">
 			Illustrative only, not financial advice. {TAX_YEAR} figures, from HMRC's published rates and allowances.
-			This is income tax on earnings alone: National Insurance is not deducted, and neither are salary
-			sacrifice or pension contributions (#27) — so "after income tax" is not your net pay. The High Income
-			Child Benefit Charge, Marriage Allowance and Student Loan repayments are in the three cards below;
-			savings and dividend income each land on their own issues. Enter income already net of any salary
-			sacrifice if you want the allowance taper assessed correctly.
+			This is income tax on earnings alone: National Insurance is not deducted — so "after income tax"
+			is not your net pay. Salary sacrifice is taken off the salary before any of this, and explained
+			in the card below; a pension contribution made any other way (net pay, or relief at source) is not
+			modelled here. The High Income Child Benefit Charge, Marriage Allowance and Student Loan repayments
+			are in the cards below, all worked on the same post-sacrifice income; savings and dividend income
+			each land on their own issues.
 		</p>
 	{/if}
 </Card>
 
 {#if incomeIsValid}
-	<ChildBenefitCharge income={parsedIncome} {region} bind:partnerIncome />
-	<MarriageAllowance income={parsedIncome} {region} bind:partnerIncome />
-	<StudentLoanRepayment income={parsedIncome} {region} />
+	<SalarySacrifice salary={parsedIncome} {region} bind:sacrifice />
+	<ChildBenefitCharge income={adjustedNetIncome} {region} bind:partnerIncome />
+	<MarriageAllowance income={adjustedNetIncome} {region} bind:partnerIncome />
+	<StudentLoanRepayment income={adjustedNetIncome} {region} />
 {/if}

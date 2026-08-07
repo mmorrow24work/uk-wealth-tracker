@@ -25,8 +25,8 @@
 <p>
 	Where each pound of your salary is taxed, for the 2026/27 tax year — the England, Wales &amp;
 	Northern Ireland ladder and Scotland's six bands, with the personal allowance and its 60% taper
-	between £100,000 and £125,140, and the High Income Child Benefit Charge that claws Child Benefit
-	back between £60,000 and £80,000.
+	between £100,000 and £125,140, what salary sacrifice is worth against that taper, and the High
+	Income Child Benefit Charge that claws Child Benefit back between £60,000 and £80,000.
 </p>
 
 <div class="mt-6 flex max-w-3xl flex-col gap-6">

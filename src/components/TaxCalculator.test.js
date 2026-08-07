@@ -115,14 +115,51 @@ describe('TaxCalculator', () => {
 		expect(body).toContain('not financial advice');
 	});
 
-	it('renders the Child Benefit, Marriage Allowance and Student Loan cards beneath the band table', () => {
+	it('renders the salary sacrifice, Child Benefit, Marriage Allowance and Student Loan cards beneath the band table', () => {
 		const body = text();
 
+		expect(body).toContain('Salary sacrifice');
+		expect(body).toContain('Nothing sacrificed');
 		expect(body).toContain('Child Benefit');
 		expect(body).toContain('High Income Child Benefit Charge');
 		expect(body).toContain('Marriage Allowance');
 		expect(body).toContain('Only available to spouses and civil partners');
 		expect(body).toContain('Student Loan repayments');
 		expect(body).toContain('No Student Loan selected, so nothing is repaid here');
+	});
+
+	it('sacrifices nothing by default, so a profile without a pension percentage is untouched', () => {
+		const body = text(profile({ gross_salary: 50_000 }));
+
+		expect(body).not.toContain('sacrificed, so everything below');
+		// The same £7,486 the band table shows without this feature existing.
+		expect(body).toContain('£7,486');
+	});
+
+	it('opens with a sacrifice seeded from the profile pension percentage', () => {
+		const body = text(profile({ gross_salary: 120_000, pension_pct: 10 }));
+
+		expect(body).toContain('£12,000 sacrificed');
+		expect(body).toContain('worked out on £108,000');
+	});
+
+	it('works the bands, the taper and the allowance on the post-sacrifice income', () => {
+		const body = text(profile({ gross_salary: 130_000, pension_pct: 30 }));
+
+		// £39,000 sacrificed leaves £91,000 — under £100,000, so the taper no longer applies at all
+		// and the whole personal allowance is back.
+		expect(body).toContain('full personal allowance');
+		expect(body).not.toContain("You're inside the");
+		expect(body).not.toContain('Your personal allowance has gone entirely');
+		expect(body).toContain('This sacrifice clears the taper');
+	});
+
+	it('hands the same post-sacrifice income to the cards below', () => {
+		const body = text(profile({ gross_salary: 70_000, pension_pct: 20 }));
+
+		// £56,000 after sacrificing £14,000 — below the £60,000 HICBC threshold, so no charge, and
+		// £4,000 short of it rather than £10,000 over.
+		expect(body).toContain('No charge — you keep all of it');
+		expect(body).toContain('£4,000 short of the £60,000 threshold');
 	});
 });
