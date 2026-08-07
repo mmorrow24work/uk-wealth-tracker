@@ -41,6 +41,10 @@ export * from './tax.js';
 // ChildBenefitCharge component.
 export * from './hicbc.js';
 
+// Marriage Allowance transfer calculation (2026/27) — see the Tax tab's MarriageAllowance
+// component.
+export * from './marriage-allowance.js';
+
 // GitHub Gist persistence — the only place any feature tab should read/write stored data from.
 export * from './gist.js';
 

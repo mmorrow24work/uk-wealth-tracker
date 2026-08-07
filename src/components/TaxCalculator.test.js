@@ -114,4 +114,13 @@ describe('TaxCalculator', () => {
 		expect(body).toContain('is not your net pay');
 		expect(body).toContain('not financial advice');
 	});
+
+	it('renders the Child Benefit and Marriage Allowance cards beneath the band table', () => {
+		const body = text();
+
+		expect(body).toContain('Child Benefit');
+		expect(body).toContain('High Income Child Benefit Charge');
+		expect(body).toContain('Marriage Allowance');
+		expect(body).toContain('Only available to spouses and civil partners');
+	});
 });
