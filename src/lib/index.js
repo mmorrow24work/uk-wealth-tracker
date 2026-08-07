@@ -97,6 +97,10 @@ export {
 // the connect page (`src/routes/connect/`) and its GitHubSignIn component.
 export * from './github-auth.js';
 
+// JSON export/import — the manual bridge between the two persistence modes, and a backup mechanism
+// either way. See the Settings tab's DataManager component.
+export * from './data-transfer.js';
+
 // Global reactive app state — the shared store every feature tab should read/write against
 // instead of local component state. Hydrates from and syncs (debounced) to persistence.js.
 export * from './store.js';
