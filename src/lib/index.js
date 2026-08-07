@@ -57,6 +57,10 @@ export * from './student-loan.js';
 // the Tax tab's SalarySacrifice component.
 export * from './salary-sacrifice.js';
 
+// ISA allowance tracker across all six wrappers (2026/27) — see the Tax tab's IsaAllowanceTracker
+// component.
+export * from './isa.js';
+
 // Defined Benefit pension income from an accrual formula or a scheme statement — see the Pensions
 // tab's DefinedBenefitIncome component.
 export * from './defined-benefit.js';
