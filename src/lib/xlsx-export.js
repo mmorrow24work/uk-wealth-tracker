@@ -21,21 +21,26 @@
  *    per-column number formats and widths) and {@link buildWorkbook} (`book_new` +
  *    `book_append_sheet` over a list of named sheets). This is what every sheet #111/#113 adds
  *    reuses; nothing below this point is specific to net worth.
- * 2. **Three sheets: net worth history, holdings, debts.** {@link exportFinancialDataXlsx}
- *    restates `net-worth.js`'s {@link import('./net-worth.js').netWorthSeries} as rows for the
- *    first, and expands `AppData.monthly_entries` into one row per holding/debt per recorded
- *    month for the other two — the same numbers the Net Worth chart plots and the monthly
- *    snapshots hold, to the penny, rather than re-deriving or collapsing them.
- *    #113 appends the pensions/properties/physical-assets sheets to the same workbook this
- *    function returns, reusing {@link enumLabel} and {@link percentFraction} below.
+ * 2. **Six sheets: net worth history, holdings, debts, pensions, properties, physical assets.**
+ *    {@link exportFinancialDataXlsx} restates `net-worth.js`'s
+ *    {@link import('./net-worth.js').netWorthSeries} as rows for the first, expands
+ *    `AppData.monthly_entries` into one row per holding/debt per recorded month for the next two
+ *    (#111) — the same numbers the Net Worth chart plots and the monthly snapshots hold, to the
+ *    penny, rather than re-deriving or collapsing them — and restates `AppData.pensions`/
+ *    `properties`/`assets` as one row per record, flat, with no month column, for the last three
+ *    (#113), reusing {@link enumLabel} and {@link percentFraction} throughout.
  */
 
 import * as XLSX from 'xlsx';
 
 import {
+	ASSET_CATEGORY_LABELS,
 	CONTRIBUTION_FREQUENCY_LABELS,
 	DEBT_TYPE_LABELS,
 	INVESTMENT_TYPE_LABELS,
+	MORTGAGE_TYPE_LABELS,
+	PENSION_TYPE_LABELS,
+	PROPERTY_TYPE_LABELS,
 	WRAPPER_LABELS
 } from './enums.js';
 import { compareMonthlyEntries } from './model.js';
@@ -52,8 +57,9 @@ import { monthStartDate, netWorthSeries } from './net-worth.js';
 /**
  * Preset number formats a column can ask for by name, rather than every call site spelling out an
  * Excel format string. `currency` and `date` are exercised by the net worth sheet below; `percent`
- * is now also used by the holdings sheet's fee/ownership columns; `integer` remains reserved for
- * #113's sheets (CAGR, qualifying years) to reuse rather than reinvent.
+ * is also used by the holdings sheet's fee/ownership columns and the pensions/properties/physical
+ * assets sheets' rate columns; `integer` is used by the pensions sheet's year counts (DB years, NI
+ * qualifying/future years).
  *
  * @type {Record<'currency' | 'percent' | 'integer' | 'date', string>}
  */
@@ -211,6 +217,32 @@ function includedInNetWorth(record) {
 }
 
 /**
+ * `Yes`/`No` for a record's own `include_in_net_worth` flag — Property and Asset spell this the
+ * positive way round (README.md's outline, not this codebase's choice), the opposite of
+ * investments/debts' `exclude_from_net_worth` above, but the column reads the same either way.
+ *
+ * @param {{ include_in_net_worth: boolean }} record
+ * @returns {'Yes' | 'No'}
+ */
+function includeInNetWorth(record) {
+	return record.include_in_net_worth ? 'Yes' : 'No';
+}
+
+/**
+ * An ISO `YYYY-MM-DD` date string as a UTC-midnight `Date`, the same convention
+ * `net-worth.js`'s `monthStartDate` and `property.js`'s `dealExpiryStatus`/`assets.js`'s
+ * `assetAge` already use — a local-midnight `Date` reads a day early in any timezone west of
+ * Greenwich. `null` passes through as `null`, matching {@link percentFraction}'s null-stays-blank
+ * rule, since `Property.deal_expiry` and `Asset.purchase_date` are both `string | null`.
+ *
+ * @param {string | null} isoDate
+ * @returns {Date | null}
+ */
+function isoDateToUtcDate(isoDate) {
+	return isoDate === null ? null : new Date(`${isoDate}T00:00:00.000Z`);
+}
+
+/**
  * The sheet name for the holdings sheet, exported so #113 can append its own sheets after it
  * without duplicating this string.
  */
@@ -325,6 +357,200 @@ const DEBTS_COLUMNS = [
 ];
 
 /**
+ * The sheet name for the pensions sheet, exported for the same reason {@link HOLDINGS_SHEET_NAME}
+ * is.
+ */
+export const PENSIONS_SHEET_NAME = 'Pensions';
+
+/**
+ * `data.pensions` restated one row per pot, flat — unlike the holdings/debts sheets above, a
+ * pension is not part of a monthly snapshot, so there is no month column and no per-entry
+ * expansion, just the list as stored.
+ *
+ * `types.js`'s `Pension` is a union in practice: DC pots use `value`/`contribution_pct`/
+ * `employer_pct`/`fund_fee`, DB pots use the `db_*` fields, and the State Pension uses the `ni_*`
+ * fields, with whichever group doesn't apply to a given row left `null`. Every column is written
+ * for every row regardless of `type` and `buildSheet` already leaves a `null` cell blank rather
+ * than `0`, so a DC pot's `db_years` reads as an empty cell, not a stated zero years of service.
+ *
+ * @type {XlsxColumn[]}
+ */
+const PENSIONS_COLUMNS = [
+	{ header: 'Name', value: (pension) => pension.name, width: 24 },
+	{ header: 'Type', value: (pension) => enumLabel(PENSION_TYPE_LABELS, pension.type), width: 26 },
+	{ header: 'Value', value: (pension) => pension.value, format: 'currency' },
+	{
+		header: 'Contribution %',
+		value: (pension) => percentFraction(pension.contribution_pct),
+		format: 'percent'
+	},
+	{
+		header: 'Employer %',
+		value: (pension) => percentFraction(pension.employer_pct),
+		format: 'percent'
+	},
+	{ header: 'Fund Fee', value: (pension) => percentFraction(pension.fund_fee), format: 'percent' },
+	{
+		header: 'DB Accrual Rate',
+		value: (pension) => percentFraction(pension.db_accrual_rate),
+		format: 'percent',
+		width: 16
+	},
+	{ header: 'DB Years', value: (pension) => pension.db_years, format: 'integer' },
+	{ header: 'DB Salary', value: (pension) => pension.db_salary, format: 'currency' },
+	{
+		header: 'DB Annual Income',
+		value: (pension) => pension.db_annual_income,
+		format: 'currency',
+		width: 16
+	},
+	{
+		header: 'NI Qualifying Years',
+		value: (pension) => pension.ni_qualifying_years,
+		format: 'integer',
+		width: 18
+	},
+	{
+		header: 'NI Future Years',
+		value: (pension) => pension.ni_future_years,
+		format: 'integer',
+		width: 16
+	}
+];
+
+/**
+ * The sheet name for the properties sheet, exported for the same reason
+ * {@link HOLDINGS_SHEET_NAME} is.
+ */
+export const PROPERTIES_SHEET_NAME = 'Properties';
+
+/**
+ * `data.properties` restated one row per property, flat, plus the derived **Equity**
+ * (`value - mortgage_balance`) a spreadsheet user would otherwise compute by hand — placed
+ * straight after the two fields it is computed from rather than at the row's end, so the
+ * subtraction it performs is visually adjacent to its inputs.
+ *
+ * @type {XlsxColumn[]}
+ */
+const PROPERTIES_COLUMNS = [
+	{ header: 'Name', value: (property) => property.name, width: 24 },
+	{
+		header: 'Type',
+		value: (property) => enumLabel(PROPERTY_TYPE_LABELS, property.type),
+		width: 18
+	},
+	{ header: 'Value', value: (property) => property.value, format: 'currency' },
+	{
+		header: 'Mortgage Balance',
+		value: (property) => property.mortgage_balance,
+		format: 'currency',
+		width: 16
+	},
+	{
+		header: 'Equity',
+		value: (property) => property.value - property.mortgage_balance,
+		format: 'currency'
+	},
+	{
+		header: 'Monthly Payment',
+		value: (property) => property.monthly_payment,
+		format: 'currency',
+		width: 16
+	},
+	{
+		header: 'Interest Rate',
+		value: (property) => percentFraction(property.interest_rate),
+		format: 'percent'
+	},
+	{
+		header: 'Mortgage Type',
+		value: (property) => enumLabel(MORTGAGE_TYPE_LABELS, property.mortgage_type),
+		width: 20
+	},
+	{
+		header: 'Deal Expiry',
+		value: (property) => isoDateToUtcDate(property.deal_expiry),
+		format: 'date',
+		width: 12
+	},
+	{
+		header: 'Rental Income',
+		value: (property) => property.rental_income,
+		format: 'currency',
+		width: 16
+	},
+	{
+		header: 'Running Costs',
+		value: (property) => property.running_costs,
+		format: 'currency',
+		width: 16
+	},
+	{
+		header: 'Growth Rate',
+		value: (property) => percentFraction(property.growth_rate),
+		format: 'percent'
+	},
+	{
+		header: 'Include in Net Worth',
+		value: (property) => includeInNetWorth(property),
+		width: 18
+	}
+];
+
+/**
+ * The sheet name for the physical assets sheet, exported for the same reason
+ * {@link HOLDINGS_SHEET_NAME} is.
+ */
+export const ASSETS_SHEET_NAME = 'Physical Assets';
+
+/**
+ * `data.assets` restated one row per asset, flat, plus the derived **Gain/Loss**
+ * (`current_value - purchase_price`) a spreadsheet user would otherwise compute by hand — placed
+ * straight after the two fields it is computed from, matching {@link PROPERTIES_COLUMNS}'s Equity
+ * column.
+ *
+ * @type {XlsxColumn[]}
+ */
+const ASSETS_COLUMNS = [
+	{ header: 'Name', value: (asset) => asset.name, width: 24 },
+	{
+		header: 'Category',
+		value: (asset) => enumLabel(ASSET_CATEGORY_LABELS, asset.category),
+		width: 20
+	},
+	{
+		header: 'Purchase Price',
+		value: (asset) => asset.purchase_price,
+		format: 'currency',
+		width: 16
+	},
+	{ header: 'Current Value', value: (asset) => asset.current_value, format: 'currency', width: 16 },
+	{
+		header: 'Gain/Loss',
+		value: (asset) => asset.current_value - asset.purchase_price,
+		format: 'currency'
+	},
+	{
+		header: 'Purchase Date',
+		value: (asset) => isoDateToUtcDate(asset.purchase_date),
+		format: 'date',
+		width: 14
+	},
+	{
+		header: 'Expected Growth',
+		value: (asset) => percentFraction(asset.expected_growth),
+		format: 'percent',
+		width: 16
+	},
+	{ header: 'Holding Cost', value: (asset) => asset.holding_cost, format: 'currency', width: 14 },
+	{
+		header: 'Include in Net Worth',
+		value: (asset) => includeInNetWorth(asset),
+		width: 18
+	}
+];
+
+/**
  * A filename carrying today's date, mirroring `data-transfer.js`'s
  * {@link import('./data-transfer.js').suggestExportFilename} exactly but for `.xlsx` — so a JSON
  * export and an XLSX export made the same day sort next to each other in a downloads folder
@@ -347,9 +573,9 @@ export function suggestXlsxExportFilename(exportedAt) {
  * `DataManager.svelte` takes it directly, the same shape `data-transfer.js`'s `json` string does
  * for the JSON export's `Blob`.
  *
- * Net worth history, holdings and debts exist so far (#64's and #111's scope), in that order;
- * #113 appends the pensions/properties/physical-assets sheets to the same {@link buildWorkbook}
- * call.
+ * Six sheets, in the order README.md/#113 settled on: the tracked total first (net worth
+ * history), then what a monthly snapshot records (holdings, debts — #111), then the three
+ * collections a monthly snapshot doesn't cover (pensions, properties, physical assets — #113).
  *
  * @param {XlsxAppData} data
  * @param {{ exportedAt?: string }} [options] `exportedAt` defaults to now; only ever overridden by
@@ -361,10 +587,16 @@ export function exportFinancialDataXlsx(data, { exportedAt = new Date().toISOStr
 	const netWorthHistorySheet = buildSheet(NET_WORTH_HISTORY_COLUMNS, points);
 	const holdingsSheet = buildSheet(HOLDINGS_COLUMNS, expandHoldingRows(data.monthly_entries));
 	const debtsSheet = buildSheet(DEBTS_COLUMNS, expandDebtRows(data.monthly_entries));
+	const pensionsSheet = buildSheet(PENSIONS_COLUMNS, data.pensions);
+	const propertiesSheet = buildSheet(PROPERTIES_COLUMNS, data.properties);
+	const assetsSheet = buildSheet(ASSETS_COLUMNS, data.assets);
 	const workbook = buildWorkbook([
 		{ name: NET_WORTH_HISTORY_SHEET_NAME, worksheet: netWorthHistorySheet },
 		{ name: HOLDINGS_SHEET_NAME, worksheet: holdingsSheet },
-		{ name: DEBTS_SHEET_NAME, worksheet: debtsSheet }
+		{ name: DEBTS_SHEET_NAME, worksheet: debtsSheet },
+		{ name: PENSIONS_SHEET_NAME, worksheet: pensionsSheet },
+		{ name: PROPERTIES_SHEET_NAME, worksheet: propertiesSheet },
+		{ name: ASSETS_SHEET_NAME, worksheet: assetsSheet }
 	]);
 	const bytes = /** @type {ArrayBuffer} */ (
 		XLSX.write(workbook, { type: 'array', bookType: 'xlsx' })

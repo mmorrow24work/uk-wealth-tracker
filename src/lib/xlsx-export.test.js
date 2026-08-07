@@ -1,13 +1,32 @@
 import { describe, expect, it } from 'vitest';
 import * as XLSX from 'xlsx';
 
-import { DEBT_TYPE_LABELS, INVESTMENT_TYPE_LABELS, WRAPPER_LABELS } from './enums.js';
-import { createAppData, createDebt, createInvestment, createMonthlyEntry } from './model.js';
+import {
+	ASSET_CATEGORY_LABELS,
+	DEBT_TYPE_LABELS,
+	INVESTMENT_TYPE_LABELS,
+	MORTGAGE_TYPE_LABELS,
+	PENSION_TYPE_LABELS,
+	PROPERTY_TYPE_LABELS,
+	WRAPPER_LABELS
+} from './enums.js';
+import {
+	createAppData,
+	createAsset,
+	createDebt,
+	createInvestment,
+	createMonthlyEntry,
+	createPension,
+	createProperty
+} from './model.js';
 import { netWorthSeries } from './net-worth.js';
 import {
+	ASSETS_SHEET_NAME,
 	DEBTS_SHEET_NAME,
 	HOLDINGS_SHEET_NAME,
 	NET_WORTH_HISTORY_SHEET_NAME,
+	PENSIONS_SHEET_NAME,
+	PROPERTIES_SHEET_NAME,
 	XLSX_NUMBER_FORMATS,
 	buildSheet,
 	buildWorkbook,
@@ -135,7 +154,7 @@ describe('suggestXlsxExportFilename', () => {
 });
 
 describe('exportFinancialDataXlsx', () => {
-	it('produces a workbook with the net worth history, holdings and debts sheets, in order', () => {
+	it('produces a workbook with all six sheets, in order', () => {
 		const { bytes, filename } = exportFinancialDataXlsx(createAppData(), {
 			exportedAt: EXPORTED_AT
 		});
@@ -145,7 +164,10 @@ describe('exportFinancialDataXlsx', () => {
 		expect(workbook.SheetNames).toEqual([
 			NET_WORTH_HISTORY_SHEET_NAME,
 			HOLDINGS_SHEET_NAME,
-			DEBTS_SHEET_NAME
+			DEBTS_SHEET_NAME,
+			PENSIONS_SHEET_NAME,
+			PROPERTIES_SHEET_NAME,
+			ASSETS_SHEET_NAME
 		]);
 	});
 
@@ -454,5 +476,280 @@ describe('exportFinancialDataXlsx — Debts sheet', () => {
 		expect(rows).toHaveLength(3);
 		expect(rows[1][4]).toBe('Yes');
 		expect(rows[2][4]).toBe('No');
+	});
+});
+
+describe('exportFinancialDataXlsx — Pensions sheet', () => {
+	const PENSIONS_HEADER = [
+		'Name',
+		'Type',
+		'Value',
+		'Contribution %',
+		'Employer %',
+		'Fund Fee',
+		'DB Accrual Rate',
+		'DB Years',
+		'DB Salary',
+		'DB Annual Income',
+		'NI Qualifying Years',
+		'NI Future Years'
+	];
+
+	it('writes a header-only sheet when there are no pensions', () => {
+		const { bytes } = exportFinancialDataXlsx(createAppData(), { exportedAt: EXPORTED_AT });
+		const sheet = readBack(bytes).Sheets[PENSIONS_SHEET_NAME];
+		expect(XLSX.utils.sheet_to_json(sheet, { header: 1 })).toEqual([PENSIONS_HEADER]);
+	});
+
+	it('writes one row per pension, not tied to any month', () => {
+		const data = createAppData({
+			pensions: [
+				createPension({ name: 'Workplace SIPP' }),
+				createPension({ name: 'Old DB scheme' })
+			]
+		});
+		const { bytes } = exportFinancialDataXlsx(data, { exportedAt: EXPORTED_AT });
+		const sheet = readBack(bytes).Sheets[PENSIONS_SHEET_NAME];
+		const rows = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+		expect(rows).toHaveLength(3);
+		expect(rows[1][0]).toBe('Workplace SIPP');
+		expect(rows[2][0]).toBe('Old DB scheme');
+	});
+
+	it('writes the pension type as its enums.js label, not the stored code', () => {
+		const data = createAppData({ pensions: [createPension({ type: 'db_care' })] });
+		const { bytes } = exportFinancialDataXlsx(data, { exportedAt: EXPORTED_AT });
+		const sheet = readBack(bytes).Sheets[PENSIONS_SHEET_NAME];
+		const rows = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+		expect(rows[1][1]).toBe(PENSION_TYPE_LABELS.db_care);
+	});
+
+	it('leaves a null DB/NI field as a blank cell on a DC pension, not 0', () => {
+		const data = createAppData({
+			pensions: [
+				createPension({
+					type: 'dc_workplace',
+					value: 50000,
+					db_accrual_rate: null,
+					db_years: null,
+					db_salary: null,
+					db_annual_income: null,
+					ni_qualifying_years: null,
+					ni_future_years: null
+				})
+			]
+		});
+		const { bytes } = exportFinancialDataXlsx(data, { exportedAt: EXPORTED_AT });
+		const sheet = readBack(bytes).Sheets[PENSIONS_SHEET_NAME];
+		expect(sheet.G2).toBeUndefined();
+		expect(sheet.H2).toBeUndefined();
+		expect(sheet.I2).toBeUndefined();
+		expect(sheet.J2).toBeUndefined();
+		expect(sheet.K2).toBeUndefined();
+		expect(sheet.L2).toBeUndefined();
+	});
+
+	it('writes contribution_pct/employer_pct/fund_fee/db_accrual_rate as fractions under the percent format', () => {
+		const data = createAppData({
+			pensions: [
+				createPension({
+					contribution_pct: 5,
+					employer_pct: 8,
+					fund_fee: 0.5,
+					db_accrual_rate: 1.6667
+				})
+			]
+		});
+		const { bytes } = exportFinancialDataXlsx(data, { exportedAt: EXPORTED_AT });
+		const sheet = readBack(bytes, { cellNF: true }).Sheets[PENSIONS_SHEET_NAME];
+		expect(sheet.D2.v).toBeCloseTo(0.05);
+		expect(sheet.D2.z).toBe(XLSX_NUMBER_FORMATS.percent);
+		expect(sheet.E2.v).toBeCloseTo(0.08);
+		expect(sheet.F2.v).toBeCloseTo(0.005);
+		expect(sheet.G2.v).toBeCloseTo(0.016667);
+		expect(sheet.G2.z).toBe(XLSX_NUMBER_FORMATS.percent);
+	});
+
+	it('writes db_years/ni_qualifying_years/ni_future_years under the integer format', () => {
+		const data = createAppData({
+			pensions: [
+				createPension({
+					db_years: 22,
+					ni_qualifying_years: 30,
+					ni_future_years: 5
+				})
+			]
+		});
+		const { bytes } = exportFinancialDataXlsx(data, { exportedAt: EXPORTED_AT });
+		const sheet = readBack(bytes, { cellNF: true }).Sheets[PENSIONS_SHEET_NAME];
+		expect(sheet.H2.v).toBe(22);
+		expect(sheet.H2.z).toBe(XLSX_NUMBER_FORMATS.integer);
+		expect(sheet.K2.v).toBe(30);
+		expect(sheet.K2.z).toBe(XLSX_NUMBER_FORMATS.integer);
+		expect(sheet.L2.v).toBe(5);
+		expect(sheet.L2.z).toBe(XLSX_NUMBER_FORMATS.integer);
+	});
+});
+
+describe('exportFinancialDataXlsx — Properties sheet', () => {
+	const PROPERTIES_HEADER = [
+		'Name',
+		'Type',
+		'Value',
+		'Mortgage Balance',
+		'Equity',
+		'Monthly Payment',
+		'Interest Rate',
+		'Mortgage Type',
+		'Deal Expiry',
+		'Rental Income',
+		'Running Costs',
+		'Growth Rate',
+		'Include in Net Worth'
+	];
+
+	it('writes a header-only sheet when there are no properties', () => {
+		const { bytes } = exportFinancialDataXlsx(createAppData(), { exportedAt: EXPORTED_AT });
+		const sheet = readBack(bytes).Sheets[PROPERTIES_SHEET_NAME];
+		expect(XLSX.utils.sheet_to_json(sheet, { header: 1 })).toEqual([PROPERTIES_HEADER]);
+	});
+
+	it('computes Equity as value - mortgage_balance', () => {
+		const data = createAppData({
+			properties: [createProperty({ value: 450000, mortgage_balance: 180000 })]
+		});
+		const { bytes } = exportFinancialDataXlsx(data, { exportedAt: EXPORTED_AT });
+		const sheet = readBack(bytes).Sheets[PROPERTIES_SHEET_NAME];
+		const rows = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+		expect(rows[1][4]).toBe(270000);
+	});
+
+	it('writes type and mortgage_type as their enums.js labels', () => {
+		const data = createAppData({
+			properties: [createProperty({ type: 'buy_to_let', mortgage_type: 'tracker' })]
+		});
+		const { bytes } = exportFinancialDataXlsx(data, { exportedAt: EXPORTED_AT });
+		const sheet = readBack(bytes).Sheets[PROPERTIES_SHEET_NAME];
+		const rows = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+		expect(rows[1][1]).toBe(PROPERTY_TYPE_LABELS.buy_to_let);
+		expect(rows[1][7]).toBe(MORTGAGE_TYPE_LABELS.tracker);
+	});
+
+	it('writes interest_rate and growth_rate as fractions under the percent format', () => {
+		const data = createAppData({
+			properties: [createProperty({ interest_rate: 4.5, growth_rate: 3 })]
+		});
+		const { bytes } = exportFinancialDataXlsx(data, { exportedAt: EXPORTED_AT });
+		const sheet = readBack(bytes, { cellNF: true }).Sheets[PROPERTIES_SHEET_NAME];
+		expect(sheet.G2.v).toBeCloseTo(0.045);
+		expect(sheet.G2.z).toBe(XLSX_NUMBER_FORMATS.percent);
+		expect(sheet.L2.v).toBeCloseTo(0.03);
+		expect(sheet.L2.z).toBe(XLSX_NUMBER_FORMATS.percent);
+	});
+
+	it('writes deal_expiry as a real UTC-midnight date cell', () => {
+		const data = createAppData({
+			properties: [createProperty({ deal_expiry: '2028-09-30' })]
+		});
+		const { bytes } = exportFinancialDataXlsx(data, { exportedAt: EXPORTED_AT });
+		const sheet = readBack(bytes, { cellDates: true }).Sheets[PROPERTIES_SHEET_NAME];
+		expect(sheet.I2.t).toBe('d');
+		expect(sheet.I2.v).toEqual(new Date(Date.UTC(2028, 8, 30)));
+	});
+
+	it('leaves a null deal_expiry as a blank cell', () => {
+		const data = createAppData({ properties: [createProperty({ deal_expiry: null })] });
+		const { bytes } = exportFinancialDataXlsx(data, { exportedAt: EXPORTED_AT });
+		const sheet = readBack(bytes).Sheets[PROPERTIES_SHEET_NAME];
+		expect(sheet.I2).toBeUndefined();
+	});
+
+	it('renders include_in_net_worth as a readable Yes/No column', () => {
+		const data = createAppData({
+			properties: [
+				createProperty({ name: 'Home', include_in_net_worth: true }),
+				createProperty({ name: 'Gifted flat', include_in_net_worth: false })
+			]
+		});
+		const { bytes } = exportFinancialDataXlsx(data, { exportedAt: EXPORTED_AT });
+		const sheet = readBack(bytes).Sheets[PROPERTIES_SHEET_NAME];
+		const rows = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+		expect(rows[1][12]).toBe('Yes');
+		expect(rows[2][12]).toBe('No');
+	});
+});
+
+describe('exportFinancialDataXlsx — Physical Assets sheet', () => {
+	const ASSETS_HEADER = [
+		'Name',
+		'Category',
+		'Purchase Price',
+		'Current Value',
+		'Gain/Loss',
+		'Purchase Date',
+		'Expected Growth',
+		'Holding Cost',
+		'Include in Net Worth'
+	];
+
+	it('writes a header-only sheet when there are no physical assets', () => {
+		const { bytes } = exportFinancialDataXlsx(createAppData(), { exportedAt: EXPORTED_AT });
+		const sheet = readBack(bytes).Sheets[ASSETS_SHEET_NAME];
+		expect(XLSX.utils.sheet_to_json(sheet, { header: 1 })).toEqual([ASSETS_HEADER]);
+	});
+
+	it('computes Gain/Loss as current_value - purchase_price', () => {
+		const data = createAppData({
+			assets: [createAsset({ purchase_price: 8000, current_value: 11000 })]
+		});
+		const { bytes } = exportFinancialDataXlsx(data, { exportedAt: EXPORTED_AT });
+		const sheet = readBack(bytes).Sheets[ASSETS_SHEET_NAME];
+		const rows = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+		expect(rows[1][4]).toBe(3000);
+	});
+
+	it('writes category as its enums.js label, not the stored code', () => {
+		const data = createAppData({ assets: [createAsset({ category: 'wine_whisky' })] });
+		const { bytes } = exportFinancialDataXlsx(data, { exportedAt: EXPORTED_AT });
+		const sheet = readBack(bytes).Sheets[ASSETS_SHEET_NAME];
+		const rows = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+		expect(rows[1][1]).toBe(ASSET_CATEGORY_LABELS.wine_whisky);
+	});
+
+	it('writes purchase_date as a real UTC-midnight date cell', () => {
+		const data = createAppData({ assets: [createAsset({ purchase_date: '1996-03-15' })] });
+		const { bytes } = exportFinancialDataXlsx(data, { exportedAt: EXPORTED_AT });
+		const sheet = readBack(bytes, { cellDates: true }).Sheets[ASSETS_SHEET_NAME];
+		expect(sheet.F2.t).toBe('d');
+		expect(sheet.F2.v).toEqual(new Date(Date.UTC(1996, 2, 15)));
+	});
+
+	it('leaves a null purchase_date as a blank cell', () => {
+		const data = createAppData({ assets: [createAsset({ purchase_date: null })] });
+		const { bytes } = exportFinancialDataXlsx(data, { exportedAt: EXPORTED_AT });
+		const sheet = readBack(bytes).Sheets[ASSETS_SHEET_NAME];
+		expect(sheet.F2).toBeUndefined();
+	});
+
+	it('writes expected_growth as a fraction under the percent format, including when negative', () => {
+		const data = createAppData({ assets: [createAsset({ expected_growth: -2.5 })] });
+		const { bytes } = exportFinancialDataXlsx(data, { exportedAt: EXPORTED_AT });
+		const sheet = readBack(bytes, { cellNF: true }).Sheets[ASSETS_SHEET_NAME];
+		expect(sheet.G2.v).toBeCloseTo(-0.025);
+		expect(sheet.G2.z).toBe(XLSX_NUMBER_FORMATS.percent);
+	});
+
+	it('renders include_in_net_worth as a readable Yes/No column', () => {
+		const data = createAppData({
+			assets: [
+				createAsset({ name: 'Watch', include_in_net_worth: true }),
+				createAsset({ name: 'Family heirloom', include_in_net_worth: false })
+			]
+		});
+		const { bytes } = exportFinancialDataXlsx(data, { exportedAt: EXPORTED_AT });
+		const sheet = readBack(bytes).Sheets[ASSETS_SHEET_NAME];
+		const rows = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+		expect(rows[1][8]).toBe('Yes');
+		expect(rows[2][8]).toBe('No');
 	});
 });
