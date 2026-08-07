@@ -61,6 +61,9 @@ export * from './salary-sacrifice.js';
 // tab's DefinedBenefitIncome component.
 export * from './defined-benefit.js';
 
+// Pension tax relief per pot (2026/27) — see the Pensions tab's PensionTaxRelief component.
+export * from './pension-relief.js';
+
 // GitHub Gist persistence — the only place any feature tab should read/write stored data from.
 export * from './gist.js';
 
