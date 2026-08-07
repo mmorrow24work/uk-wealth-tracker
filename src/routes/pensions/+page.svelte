@@ -5,6 +5,7 @@
 	import DefinedBenefitIncome from '../../components/DefinedBenefitIncome.svelte';
 	import PensionTaxRelief from '../../components/PensionTaxRelief.svelte';
 	import PensionTracker from '../../components/PensionTracker.svelte';
+	import StatePensionProjection from '../../components/StatePensionProjection.svelte';
 	import {
 		appData,
 		createProfile,
@@ -21,7 +22,8 @@
 	/** @type {import('$lib/types.js').Pension[]} */
 	let pensions = $state([]);
 	// `PensionTaxRelief` (#32) needs `profile.gross_salary`/`profile.tax_region` to work out a pot's
-	// relief, the same read-only, not-written-back seeding the tax tab gives `TaxCalculator`.
+	// relief, and `StatePensionProjection` (#31) needs `profile.dob_month`/`dob_year` to date State
+	// Pension age — the same read-only, not-written-back seeding the tax tab gives `TaxCalculator`.
 	/** @type {import('$lib/types.js').Profile} */
 	let profile = $state(createProfile());
 	let ready = $state(false);
@@ -43,9 +45,9 @@
 <h1>Pensions</h1>
 <p>
 	Pension pot tracking for DC Workplace, SIPP, Defined Benefit (Final Salary/CARE) and Lifetime ISA
-	pots, the income your Defined Benefit schemes will pay, and the tax relief each pot's own
-	contribution attracts. The State Pension projection (#31) and the retirement income stream builder
-	(#33) land in later builds.
+	pots, the income your Defined Benefit schemes will pay, the tax relief each pot's own contribution
+	attracts, and what your National Insurance record projects to as a State Pension. The retirement
+	income stream builder (#33) lands in a later build.
 </p>
 <p class="text-sm text-muted-foreground">
 	{getPersistenceMode() === 'gist' ? 'Synced to your GitHub Gist' : 'Saved to this browser only'}.
@@ -57,6 +59,7 @@
 	{#if ready}
 		<PensionTracker bind:pensions />
 		<DefinedBenefitIncome {pensions} />
+		<StatePensionProjection bind:pensions {profile} />
 		<PensionTaxRelief {pensions} {profile} />
 	{:else}
 		<p class="text-sm text-muted-foreground">Loading your saved data…</p>

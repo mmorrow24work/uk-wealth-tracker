@@ -68,6 +68,10 @@ export * from './defined-benefit.js';
 // Pension tax relief per pot (2026/27) — see the Pensions tab's PensionTaxRelief component.
 export * from './pension-relief.js';
 
+// UK State Pension from National Insurance qualifying years (2026/27) — see the Pensions tab's
+// StatePensionProjection component.
+export * from './state-pension.js';
+
 // Dividend income planner: per-holding DRIP compounding projection vs income-phase income, split
 // around an age slider — see the Dividends tab's DividendTracker/DividendIncomePlanner components.
 export * from './dividends.js';

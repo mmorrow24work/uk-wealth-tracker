@@ -19,6 +19,12 @@
 	 * #29's forward-reference note with those four fields, and shows each Defined Benefit pot's income
 	 * on its row: `$lib/defined-benefit.js` owns the formula, this owns the inputs to it.
 	 *
+	 * The State Pension record `StatePensionProjection` (#31) keeps in the same `pensions[]` list is
+	 * filtered out of the list below as well as out of the form's type select. It is in the data model
+	 * as a pension because the retirement income stream builder (#33) needs it there, but it has no
+	 * pot value, no provider and no contribution percentages, so a row here would be four zeroes and
+	 * an Edit button that could only turn it into something it is not — its own card owns it.
+	 *
 	 * The accrual rate is asked for twice over, deliberately. Schemes are always *described* as a
 	 * fraction ("a 1/60th scheme") and `Pension.db_accrual_rate` stores a percentage, so the select
 	 * offers the usual denominators and writes the matching percentage into the number input beside
@@ -42,6 +48,7 @@
 		PENSION_TYPE_LABELS
 	} from '$lib/enums.js';
 	import { createPension } from '$lib/model.js';
+	import { isStatePension } from '$lib/state-pension.js';
 	import Card from './ui/card.svelte';
 	import Button from './ui/button.svelte';
 
@@ -78,7 +85,10 @@
 		return `${headline} · ${rate} × ${db.years} yrs × ${formatMoney(/** @type {number} */ (db.salary))}`;
 	}
 
-	const totalPotValue = $derived(pensions.reduce((sum, pension) => sum + pension.value, 0));
+	/** Everything this card owns: the whole list bar the State Pension, which has its own card. */
+	const pots = $derived(pensions.filter((pension) => !isStatePension(pension)));
+
+	const totalPotValue = $derived(pots.reduce((sum, pension) => sum + pension.value, 0));
 
 	/** @type {string | null} */
 	let editingId = $state(null);
@@ -218,17 +228,17 @@
 	<Card className="p-4">
 		<h2 class="text-lg font-semibold mb-3">Pension pots</h2>
 
-		{#if pensions.length === 0}
+		{#if pots.length === 0}
 			<p class="text-sm text-muted-foreground mb-4">No pension pots recorded yet. Add one below.</p>
 		{:else}
 			<p class="text-sm text-muted-foreground mb-3">
-				{pensions.length} pot{pensions.length === 1 ? '' : 's'} recorded, totalling {formatMoney(
+				{pots.length} pot{pots.length === 1 ? '' : 's'} recorded, totalling {formatMoney(
 					totalPotValue
 				)} of pot value.
 			</p>
 
 			<ul class="flex flex-col gap-2 mb-4 list-none p-0 m-0">
-				{#each pensions as pension (pension.id)}
+				{#each pots as pension (pension.id)}
 					<li
 						class="flex items-center justify-between gap-3 border border-border rounded-md px-3 py-2"
 					>
