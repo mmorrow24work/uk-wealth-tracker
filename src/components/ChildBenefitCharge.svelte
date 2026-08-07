@@ -9,12 +9,14 @@
 	 * worked on would be two answers to one question. That is why `income` and `region` arrive as
 	 * props from `TaxCalculator.svelte` rather than this panel owning a second salary field.
 	 *
-	 * What it does own is everything `tax.js` cannot know: how many children are claimed for, whether
-	 * the payments are actually being taken, and what a partner earns — because the charge falls on
-	 * whichever of a couple has the higher income, not on the claimant and not on the household. None
-	 * of it is persisted; `Profile` has no children and no partner (README.md's data model lists
-	 * neither, and household planning is Phase 2), so these are session-only, as the salary above
-	 * already is.
+	 * What it does own is everything `tax.js` cannot know: how many children are claimed for and
+	 * whether the payments are actually being taken. What a partner earns is different again — it
+	 * matters here (the charge falls on whichever of a couple has the higher income, not on the
+	 * claimant and not on the household) *and* to `MarriageAllowance.svelte` alongside this panel
+	 * (issue #25), so `partnerIncome` is `bindable` and `TaxCalculator` holds the one value both
+	 * panels read and write, rather than each asking the same question separately. None of it is
+	 * persisted; `Profile` has no children and no partner (README.md's data model lists neither, and
+	 * household planning is Phase 2), so these are session-only, as the salary above already is.
 	 *
 	 * The figure the tab exists to surface is the marginal rate: a two-child family on £70,000 is
 	 * losing 51.7% of the next £200, not the 40% the band table shows.
@@ -41,7 +43,7 @@
 		income = 0,
 		region = 'england_wales_ni',
 		children: initialChildren = 1,
-		partnerIncome: initialPartnerIncome = 0,
+		partnerIncome = $bindable(0),
 		claiming: initialClaiming = true
 	} = $props();
 
@@ -50,8 +52,6 @@
 
 	// svelte-ignore state_referenced_locally
 	let children = $state(initialChildren);
-	// svelte-ignore state_referenced_locally
-	let partnerIncome = $state(initialPartnerIncome);
 	// svelte-ignore state_referenced_locally
 	let claiming = $state(initialClaiming);
 
@@ -322,7 +322,8 @@
 		source, salary sacrifice and Gift Aid — so enter incomes already net of those. It is a charge on one
 		person, collected through their own tax return (or PAYE code), even when someone else receives the
 		money; where both partners earn the same, HMRC settles which of them pays by reference to who claims,
-		which this app doesn't track. Child Benefit's own rules — who can claim, and the Marriage Allowance
-		alongside it — are issue #25.
+		which this app doesn't track. Child Benefit's own claim/opt-out rules beyond what's above — who can
+		claim, and the interaction with a parent's National Insurance credits — remain open. Marriage Allowance,
+		which shares the partner income field above, is the card below this one.
 	</p>
 </Card>

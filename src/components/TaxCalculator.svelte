@@ -15,14 +15,17 @@
 	 *
 	 * "Take-home" here is gross less *income tax* only. National Insurance is not modelled (it
 	 * appears nowhere in README.md's spec and has no issue in the tax milestone), and student loans
-	 * (#26), salary sacrifice (#27) and Marriage Allowance (#25) are their own issues — so every
-	 * figure is labelled for what it is rather than presented as net pay.
+	 * (#26) and salary sacrifice (#27) are their own issues — so every figure is labelled for what it
+	 * is rather than presented as net pay.
 	 *
-	 * The High Income Child Benefit Charge (#24) is rendered here as a second card rather than on the
-	 * page beside this one, because it is assessed on the *same* adjusted net income: giving it its
-	 * own salary field would let the tab hold two answers to one question. `ChildBenefitCharge`
-	 * therefore takes the income and region as props and owns only what `tax.js` cannot know — how
-	 * many children are claimed for, whether the payments are taken, and what a partner earns.
+	 * The High Income Child Benefit Charge (#24) and Marriage Allowance (#25) are rendered here as
+	 * two further cards rather than on the page beside this one, because both are assessed on the
+	 * *same* adjusted net income: giving either its own salary field would let the tab hold multiple
+	 * answers to one question. Both also need to know what a partner earns, so that field is owned
+	 * here too — `partnerIncome` — and passed down with `bind:` to both cards rather than each asking
+	 * the question separately. `ChildBenefitCharge` and `MarriageAllowance` otherwise own only what
+	 * `tax.js` cannot know: how many children are claimed for and whether the payments are taken
+	 * (the former), and whether the couple is married and has applied for the transfer (the latter).
 	 */
 	import { TAX_REGION_LABELS, TAX_REGIONS } from '$lib/enums.js';
 	import { createProfile } from '$lib/model.js';
@@ -36,9 +39,13 @@
 	} from '$lib/tax.js';
 	import Card from './ui/card.svelte';
 	import ChildBenefitCharge from './ChildBenefitCharge.svelte';
+	import MarriageAllowance from './MarriageAllowance.svelte';
 
 	/** @type {{ profile?: import('$lib/types.js').Profile }} */
 	let { profile = createProfile() } = $props();
+
+	/** Shared between `ChildBenefitCharge` and `MarriageAllowance` — see the header note above. */
+	let partnerIncome = $state(0);
 
 	// Slider bounds are a UI convenience, not spec. `tax.js` copes with any income; this is only
 	// where the drag handle lives, and it reaches past the £125,140 top-rate threshold on purpose.
@@ -308,13 +315,14 @@
 			Illustrative only, not financial advice. {TAX_YEAR} figures, from HMRC's published rates and allowances.
 			This is income tax on earnings alone: National Insurance is not deducted, and neither are student
 			loan repayments (#26), salary sacrifice or pension contributions (#27) — so "after income tax" is
-			not your net pay. The High Income Child Benefit Charge is in the card below; Marriage Allowance
-			(#25), savings and dividend income each land on their own issues. Enter income already net of any
+			not your net pay. The High Income Child Benefit Charge and Marriage Allowance are in the two cards
+			below; savings and dividend income each land on their own issues. Enter income already net of any
 			salary sacrifice if you want the allowance taper assessed correctly.
 		</p>
 	{/if}
 </Card>
 
 {#if incomeIsValid}
-	<ChildBenefitCharge income={parsedIncome} {region} />
+	<ChildBenefitCharge income={parsedIncome} {region} bind:partnerIncome />
+	<MarriageAllowance income={parsedIncome} {region} bind:partnerIncome />
 {/if}
