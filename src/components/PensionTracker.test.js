@@ -1,17 +1,21 @@
 /**
- * Server-rendered smoke tests for the Pension tracker (issue #29).
+ * Server-rendered smoke tests for the Pension tracker (issues #29 and #30).
  *
  * As `FireCalculator.test.js` documents: no browser test environment, so `svelte/server`'s
  * `render` covers the initial render only — what a user sees against a given `pensions` list,
  * before touching the add/edit form. `PensionTracker`'s only interesting *initial-render* branch
- * is per-pension (pot-value fields vs the Defined Benefit forward-reference note), so that is what
+ * is per-pension (pot-value fields vs the Defined Benefit income line #30 added), so that is what
  * these tests pin; the add/edit/remove logic itself is straightforward enough state-juggling
  * (mirroring `InvestmentHoldings`/`DebtTracker`, neither of which has its own test file either)
- * that it is left to `npm run build && npm run preview` manual verification instead.
+ * that it is left to `npm run build && npm run preview` manual verification instead. The Defined
+ * Benefit half of the form — the accrual fraction select and the four `db_*` inputs — only renders
+ * once a Defined Benefit type is chosen, which is an interaction, so it is out of reach here too;
+ * the formula behind it is covered directly in `$lib/defined-benefit.test.js`.
  */
 import { render } from 'svelte/server';
 import { describe, expect, it } from 'vitest';
 
+import { accrualRateFromDenominator } from '$lib/defined-benefit.js';
 import { PENSION_POT_TYPES, PENSION_TYPE_LABELS } from '$lib/enums.js';
 import { createPension } from '$lib/model.js';
 import PensionTracker from './PensionTracker.svelte';
@@ -91,19 +95,45 @@ describe('PensionTracker', () => {
 		expect(body).toContain('Lifetime ISA');
 	});
 
-	it('shows a forward-reference note for a Defined Benefit pot instead of pot-value fields', () => {
+	it('asks a Defined Benefit pot for its inputs instead of showing an income it cannot work out', () => {
 		const body = text({
 			pensions: [createPension({ name: 'NHS Pension', type: 'db_final_salary' })]
 		});
 
 		expect(body).toContain('NHS Pension');
 		expect(body).toContain('Defined Benefit (Final Salary)');
-		expect(body).toContain(
-			'accrual rate, years of service and income calculation land in a later build (#30)'
-		);
+		expect(body).toContain('No income yet');
 		// The list-item summary format for pot-value types ("£X pot · Y% your contribution + …") must
-		// not appear for a Defined Benefit entry — only the note above should describe it.
+		// not appear for a Defined Benefit entry.
 		expect(body).not.toContain('pot ·');
+	});
+
+	it('works a Defined Benefit income out from the accrual route and shows how — issue #30', () => {
+		const body = text({
+			pensions: [
+				createPension({
+					name: 'Legacy final salary scheme',
+					type: 'db_final_salary',
+					db_accrual_rate: accrualRateFromDenominator(60),
+					db_years: 25,
+					db_salary: 45_000
+				})
+			]
+		});
+
+		// (1/60) × £45,000 × 25 = £18,750 a year, £1,562.50 a month.
+		expect(body).toContain('£18,750/yr');
+		expect(body).toContain('£1,563/mo');
+		expect(body).toContain('1/60th × 25 yrs × £45,000');
+	});
+
+	it('says when a Defined Benefit income came off a statement rather than the formula', () => {
+		const body = text({
+			pensions: [createPension({ name: 'NHS 2015', type: 'db_care', db_annual_income: 9_320 })]
+		});
+
+		expect(body).toContain('£9,320/yr');
+		expect(body).toContain('taken from your statement');
 	});
 
 	it('sums pot value across pots, defined benefit pots contributing zero', () => {

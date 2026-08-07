@@ -15,15 +15,27 @@
 	 *
 	 * `contribution_pct`/`employer_pct`/`fund_fee` only mean something for the three pot-value types
 	 * (DC Workplace, SIPP, Lifetime ISA) — `$lib/model.js`'s own `Pension` typedef says a Defined
-	 * Benefit pot uses the `db_*` accrual fields instead and carries zero in these. Issue #30 (Defined
-	 * Benefit pension income calculation) is where accrual rate, years of service and salary get an
-	 * input; this component lets Defined Benefit be *selected* as a pot type (issue #29's scope
-	 * includes it in the type list) but shows a forward-reference note in place of fields that do not
-	 * apply, rather than collecting numbers nothing yet reads.
+	 * Benefit pot uses the `db_*` accrual fields instead and carries zero in these. Issue #30 replaces
+	 * #29's forward-reference note with those four fields, and shows each Defined Benefit pot's income
+	 * on its row: `$lib/defined-benefit.js` owns the formula, this owns the inputs to it.
+	 *
+	 * The accrual rate is asked for twice over, deliberately. Schemes are always *described* as a
+	 * fraction ("a 1/60th scheme") and `Pension.db_accrual_rate` stores a percentage, so the select
+	 * offers the usual denominators and writes the matching percentage into the number input beside
+	 * it. The percentage is the single source of truth — the select is derived back off it, so typing
+	 * a rate that happens to be 1/80th selects 1/80th, and typing one that is nobody's fraction falls
+	 * to "Other".
 	 *
 	 * No activity log: `$lib/enums.js`'s `ACTIVITY_LOG_ENTITY_TYPES` covers `investment`/`debt` only
 	 * (issue #14's own scope), and pensions were never in it.
 	 */
+	import {
+		COMMON_ACCRUAL_DENOMINATORS,
+		accrualFractionLabel,
+		accrualRateFromDenominator,
+		asRecordedInput,
+		definedBenefitBreakdown
+	} from '$lib/defined-benefit.js';
 	import {
 		DEFINED_BENEFIT_PENSION_TYPES,
 		PENSION_POT_TYPES,
@@ -50,8 +62,20 @@
 	}
 
 	/** @param {import('$lib/enums.js').PensionType} type */
-	function isDefinedBenefit(type) {
+	function isDefinedBenefitType(type) {
 		return DEFINED_BENEFIT_PENSION_TYPES.includes(type);
+	}
+
+	/** @param {import('$lib/types.js').Pension} pension */
+	function incomeSummary(pension) {
+		const db = definedBenefitBreakdown(pension);
+		if (!db.complete) return '';
+
+		const headline = `${formatMoney(db.annualIncome)}/yr · ${formatMoney(db.monthlyIncome)}/mo`;
+		if (db.source === 'stated') return `${headline} · taken from your statement`;
+
+		const rate = db.accrualFraction || `${db.accrualRate}%`;
+		return `${headline} · ${rate} × ${db.years} yrs × ${formatMoney(/** @type {number} */ (db.salary))}`;
 	}
 
 	const totalPotValue = $derived(pensions.reduce((sum, pension) => sum + pension.value, 0));
@@ -65,8 +89,46 @@
 	let contributionPct = $state('');
 	let employerPct = $state('');
 	let fundFee = $state('');
+	let accrualRate = $state('');
+	let dbYears = $state('');
+	let dbSalary = $state('');
+	let dbAnnualIncome = $state('');
 
-	const showPotFields = $derived(!isDefinedBenefit(type));
+	const showPotFields = $derived(!isDefinedBenefitType(type));
+
+	/**
+	 * Which fraction the typed rate is, if it is one of the ones on offer — `''` selects "Other".
+	 * Compared as labels so the tolerance for "close enough to 1/60th" lives in one place,
+	 * `defined-benefit.js`, rather than being restated here.
+	 */
+	const selectedDenominator = $derived.by(() => {
+		const rate = asRecordedInput(accrualRate);
+		if (rate === null) return '';
+
+		const label = accrualFractionLabel(rate);
+		const match = COMMON_ACCRUAL_DENOMINATORS.find(
+			(denominator) => label !== '' && label === fractionLabel(denominator)
+		);
+		return match === undefined ? '' : String(match);
+	});
+
+	/** @param {number} denominator @returns {string} e.g. "1/60th" */
+	function fractionLabel(denominator) {
+		return accrualFractionLabel(accrualRateFromDenominator(denominator));
+	}
+
+	/**
+	 * Picking a fraction writes the percentage it works out to, rounded to four decimals — the same
+	 * precision `types.js` documents (`a 1/60th scheme is 1.6667`), and close enough that the select
+	 * derives straight back to the fraction just chosen.
+	 *
+	 * @param {string} denominator
+	 */
+	function pickAccrualFraction(denominator) {
+		if (denominator === '') return;
+		const rate = accrualRateFromDenominator(Number(denominator));
+		accrualRate = String(Math.round(rate * 10_000) / 10_000);
+	}
 
 	function resetForm() {
 		editingId = null;
@@ -76,18 +138,32 @@
 		contributionPct = '';
 		employerPct = '';
 		fundFee = '';
+		accrualRate = '';
+		dbYears = '';
+		dbSalary = '';
+		dbAnnualIncome = '';
 	}
 
 	function formFields() {
-		const isPot = !isDefinedBenefit(type);
+		const isPot = !isDefinedBenefitType(type);
+		const isDb = !isPot;
 		return {
 			name: name.trim(),
 			type,
 			value: isPot ? Number(value) || 0 : 0,
 			contribution_pct: isPot ? Number(contributionPct) || 0 : 0,
 			employer_pct: isPot ? Number(employerPct) || 0 : 0,
-			fund_fee: isPot ? Number(fundFee) || 0 : 0
+			fund_fee: isPot ? Number(fundFee) || 0 : 0,
+			db_accrual_rate: isDb ? asRecordedInput(accrualRate) : null,
+			db_years: isDb ? asRecordedInput(dbYears) : null,
+			db_salary: isDb ? asRecordedInput(dbSalary) : null,
+			db_annual_income: isDb ? asRecordedInput(dbAnnualIncome) : null
 		};
+	}
+
+	/** @param {number | null} field @returns {string} */
+	function fieldText(field) {
+		return field === null ? '' : String(field);
 	}
 
 	/** @param {import('$lib/types.js').Pension} pension */
@@ -99,6 +175,10 @@
 		contributionPct = String(pension.contribution_pct);
 		employerPct = String(pension.employer_pct);
 		fundFee = String(pension.fund_fee);
+		accrualRate = fieldText(pension.db_accrual_rate);
+		dbYears = fieldText(pension.db_years);
+		dbSalary = fieldText(pension.db_salary);
+		dbAnnualIncome = fieldText(pension.db_annual_income);
 	}
 
 	function addPension() {
@@ -157,10 +237,15 @@
 							<span class="text-sm text-muted-foreground">
 								{PENSION_TYPE_LABELS[pension.type]}
 							</span>
-							{#if isDefinedBenefit(pension.type)}
+							{#if isDefinedBenefitType(pension.type)}
+								{@const summary = incomeSummary(pension)}
 								<span class="text-xs text-muted-foreground max-w-md">
-									Defined Benefit pot — accrual rate, years of service and income calculation land
-									in a later build (#30).
+									{#if summary === ''}
+										No income yet — add an accrual rate, years of service and pensionable salary, or
+										the annual income straight off your statement.
+									{:else}
+										{summary}
+									{/if}
 								</span>
 							{:else}
 								<span class="text-xs text-muted-foreground">
@@ -277,9 +362,83 @@
 					/>
 				</div>
 			{:else}
-				<p class="text-xs text-muted-foreground max-w-xs pb-2">
-					Defined Benefit pots don't have a pot value to enter — accrual rate, years of service and
-					income calculation land in a later build (#30).
+				<div class="flex flex-col gap-1">
+					<label class="text-sm font-medium" for="pension-accrual-fraction">Accrual</label>
+					<select
+						id="pension-accrual-fraction"
+						value={selectedDenominator}
+						onchange={(event) => pickAccrualFraction(event.currentTarget.value)}
+						class="border border-input rounded-md px-2 py-1.5 text-sm"
+					>
+						<option value="">Other</option>
+						{#each COMMON_ACCRUAL_DENOMINATORS as denominator (denominator)}
+							<option value={String(denominator)}>{fractionLabel(denominator)}</option>
+						{/each}
+					</select>
+				</div>
+
+				<div class="flex flex-col gap-1">
+					<label class="text-sm font-medium" for="pension-accrual-rate">Accrual rate (%/yr)</label>
+					<input
+						id="pension-accrual-rate"
+						type="number"
+						min="0"
+						max="100"
+						step="0.0001"
+						bind:value={accrualRate}
+						placeholder="1.6667"
+						class="border border-input rounded-md px-2 py-1.5 text-sm w-28"
+					/>
+				</div>
+
+				<div class="flex flex-col gap-1">
+					<label class="text-sm font-medium" for="pension-db-years">Years of service</label>
+					<input
+						id="pension-db-years"
+						type="number"
+						min="0"
+						max="100"
+						step="0.1"
+						bind:value={dbYears}
+						placeholder="0"
+						class="border border-input rounded-md px-2 py-1.5 text-sm w-28"
+					/>
+				</div>
+
+				<div class="flex flex-col gap-1">
+					<label class="text-sm font-medium" for="pension-db-salary">Pensionable salary (£)</label>
+					<input
+						id="pension-db-salary"
+						type="number"
+						min="0"
+						step="0.01"
+						bind:value={dbSalary}
+						placeholder="0"
+						class="border border-input rounded-md px-2 py-1.5 text-sm w-32"
+					/>
+				</div>
+
+				<div class="flex flex-col gap-1">
+					<label class="text-sm font-medium" for="pension-db-income">
+						Annual income from statement (£)
+					</label>
+					<input
+						id="pension-db-income"
+						type="number"
+						min="0"
+						step="0.01"
+						bind:value={dbAnnualIncome}
+						placeholder="Optional"
+						class="border border-input rounded-md px-2 py-1.5 text-sm w-32"
+					/>
+				</div>
+
+				<p class="text-xs text-muted-foreground max-w-md pb-2">
+					A Defined Benefit pot has no pot value — its income is
+					<span class="font-medium">accrual rate × pensionable salary × years of service</span>.
+					Enter years of service as the total you expect to have when you draw the pension, and the
+					salary you expect it to be worked out on. A figure off your annual benefit statement wins
+					over the formula if you have one.
 				</p>
 			{/if}
 
