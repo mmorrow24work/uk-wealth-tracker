@@ -95,15 +95,21 @@ jobs:
         # concurrency group guarantees only one run of this workflow is
         # ever active, so any issue still in-progress here was left that
         # way by a run that has already fully finished.
-        # Matches on "#<n>" anywhere in an open PR's title or body, not
-        # just an exact "Closes #<n>", since Claude doesn't always use that
-        # literal phrasing (see PR #52 / issue #13) -- an issue is only
-        # reset if no open PR references it at all.
+        # Matches "Closes #<n>" in an open PR's body, OR "#<n>" in its
+        # title, since Claude doesn't always use the literal "Closes #<n>"
+        # phrasing (see PR #52 / issue #13, "#13" only in the title). Does
+        # NOT match "#<n>" loosely anywhere in the body -- that was tried
+        # and caused a real false positive: PR #70 (issue #12's own PR)
+        # mentions "issue #67" in its body prose as a cross-reference, which
+        # made issue #67 look like it already had an open PR and left it
+        # stuck in-progress indefinitely after really failing separately.
+        # An issue is only reset if no open PR actually references it.
         run: |
           stalled=$(gh issue list --state open --label status:in-progress --json number --jq '.[].number')
-          open_prs=$(gh pr list --state open --json title,body --jq '[.[] | (.title + " " + .body)]')
+          open_prs=$(gh pr list --state open --json title,body)
           for n in $stalled; do
-            has_pr=$(echo "$open_prs" | jq --arg n "$n" 'map(select(test("#" + $n + "(\\D|$)"))) | length > 0')
+            has_pr=$(echo "$open_prs" | jq --arg n "$n" \
+              'map(select((.body | test("[Cc]loses #" + $n + "(\\D|$)")) or (.title | test("#" + $n + "(\\D|$)")))) | length > 0')
             if [ "$has_pr" = "false" ]; then
               echo "Issue #$n has no open PR -- resetting to status:ready"
               gh issue edit "$n" --remove-label "status:in-progress" --add-label "status:ready"
@@ -197,7 +203,13 @@ jobs:
           execution_file="${{ steps.claude.outputs.execution_file }}"
           is_max_turns=false
           if [ -n "$execution_file" ] && [ -f "$execution_file" ]; then
-            subtype=$(jq -r '.. | .subtype? // empty' "$execution_file" 2>/dev/null | grep -m1 . || echo "")
+            # execution_file is an array of every event in the session --
+            # the session-start "init" event also has its own .subtype
+            # field, and a naive `.. | .subtype?` grabs THAT first (wrong).
+            # The terminal outcome is the last event with type=="result".
+            # Confirmed as a real bug: issue #67 hit error_max_turns but
+            # this picked up "init" and silently skipped the auto-split.
+            subtype=$(jq -r '[.[] | select(.type=="result")] | last | .subtype // empty' "$execution_file" 2>/dev/null || echo "")
             if [ "$subtype" = "error_max_turns" ]; then
               is_max_turns=true
             fi
@@ -265,14 +277,16 @@ jobs:
         if: steps.pick.outputs.found == 'true'
         id: findpr
         run: |
-          # Match "#<n>" anywhere in title or body, not just an exact
-          # "Closes #<n>" in the body -- Claude doesn't always use that
-          # literal phrasing (see PR #52 / issue #13, which only had
-          # "(#13)" in the title), and a stricter match left a green,
-          # mergeable PR sitting untouched indefinitely.
+          # Match "Closes #<n>" in the body, OR "#<n>" in the title --
+          # Claude doesn't always use the literal "Closes #<n>" phrasing
+          # (see PR #52 / issue #13, "#13" only in the title), so title is
+          # also checked. Deliberately NOT matching "#<n>" loosely anywhere
+          # in the body: that was tried and caused a real false positive
+          # (PR #70/issue #12 mentions "issue #67" in its body prose,
+          # which made issue #67 look like it already had a PR here too).
           pr_json=$(gh pr list --state open --json number,headRefName,title,body --limit 100 \
             | jq -c --arg n "${{ steps.pick.outputs.number }}" \
-              '[.[] | select((.title + " " + .body) | test("#" + $n + "(\\D|$)"))] | .[0] // empty')
+              '[.[] | select((.body | test("[Cc]loses #" + $n + "(\\D|$)")) or (.title | test("#" + $n + "(\\D|$)")))] | .[0] // empty')
 
           if [ -z "$pr_json" ]; then
             echo "No PR found referencing Closes #${{ steps.pick.outputs.number }} -- Claude did not finish (e.g. hit max-turns)."
