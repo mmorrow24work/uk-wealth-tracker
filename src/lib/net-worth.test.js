@@ -1,18 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import {
-	calculateNetWorth,
-	calculateMonthlyChange,
-	findPreviousMonth
-} from './net-worth.js';
+import { calculateNetWorth, calculateMonthlyChange, findPreviousMonth } from './net-worth.js';
 import { createDebt, createInvestment, createMonthlyEntry } from './model.js';
 
 describe('calculateNetWorth', () => {
 	it('sums investments and subtracts debts', () => {
 		const entry = createMonthlyEntry({
-			investments: [
-				createInvestment({ value: 10000 }),
-				createInvestment({ value: 5000 })
-			],
+			investments: [createInvestment({ value: 10000 }), createInvestment({ value: 5000 })],
 			debts: [createDebt({ balance: 2000 })]
 		});
 
