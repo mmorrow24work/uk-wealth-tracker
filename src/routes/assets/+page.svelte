@@ -27,7 +27,7 @@
 	});
 </script>
 
-<h1>Assets</h1>
+<h1>💎 Assets</h1>
 <p>
 	Physical asset tracking — watches & jewellery, art & collectables, classic/collector cars, wine &
 	whisky, precious metals and other categories, with purchase price, current value, purchase date,

@@ -53,7 +53,7 @@
 	});
 </script>
 
-<h1>Pensions</h1>
+<h1>👴 Pensions</h1>
 <p>
 	Pension pot tracking for DC Workplace, SIPP, Defined Benefit (Final Salary/CARE) and Lifetime ISA
 	pots, the income your Defined Benefit schemes will pay, the tax relief each pot's own contribution

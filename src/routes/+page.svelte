@@ -49,7 +49,7 @@
 	});
 </script>
 
-<h1>Net Worth</h1>
+<h1>💰 Net Worth</h1>
 <p>Personal UK net worth, tax and retirement planning app. Not financial advice.</p>
 <p>
 	Your recorded net worth history is charted below, with the three forecast scenarios and their

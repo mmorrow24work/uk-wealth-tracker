@@ -21,7 +21,7 @@
 	});
 </script>
 
-<h1>Settings</h1>
+<h1>⚙️ Settings</h1>
 <p>
 	Where your data lives, and how to move it: switch between browser-only storage and GitHub Gist
 	sync, export everything as one JSON file, or replace what's stored here by importing one back in.

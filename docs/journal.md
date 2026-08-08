@@ -1698,3 +1698,24 @@ Recomputed by the pipeline's "Patch journal metrics" step after every issue that
 - **Driven for real in a browser**, continuing the pattern from #22–#38/#98/#61/#62/#63/#100/#28/#31/#33/#39/#64/#111/#116. `npm run build` + `vite preview`, headless system Chromium over the DevTools Protocol (`playwright-core` installed with `npm install --no-save`, not added to `package.json`/the lockfile). Confirmed on the Settings page: clicking "Serif" flips `<html class="font-serif">` and `body`'s computed `font-family` to the serif stack; clicking "Large" additionally sets `text-scale-large` and changes `<html>`'s computed `font-size` from `16px` to `18px`; both choices persist to their `localStorage` keys and survive a full page reload (`app.html`'s inline script re-applying them before hydration, not just `onMount` catching up after a flash); reverting to both "Default" options removes both classes and restores `16px`/the sans stack exactly. A second run confirmed Rounded + Small + Dark mode together resolve to `<html class="font-rounded text-scale-small dark">` with no conflict between the two features' classes, and a full-page screenshot of the Net Worth dashboard with Serif + Large active showed the nav, headings and body copy all rendering in the larger serif face — not just the Settings page's own text. No console messages or page errors in any run; script and its Chromium profile directory were removed afterward, nothing left in the working tree.
 - **The pre-existing `<meta name="text-scale" content="scale" />` line in `app.html` was removed.** It shipped in the original scaffold commit, is not a real HTML meta name browsers or any tooling recognise, and did nothing — plausibly a placeholder dropped while scaffolding this exact issue's name. Since this issue touches this file's `<head>` directly for the real mechanism, leaving a same-named no-op tag sitting next to the feature it resembles but isn't part of would read as broken or duplicated wiring to the next person to look at this file.
 - `npm test` still isn't in `.github/workflows/ci.yml` (flagged since #2; the app token lacks `workflows` permission), so all 1643 tests (19 new, in `typography.test.js`) run locally but not on the PR. `build`/`check`/`lint` remain the only CI gates.
+
+## Add emoji to each nav tab / page heading — 2026-08-08
+<!-- METRICS:add-emoji-to-each-nav-tab-page-heading -->
+- **Execution Duration:** __DURATION__ seconds
+- **Model:** __MODEL__
+- **Turns:** __TURNS__
+- **Input Tokens:** __INPUT_TOKENS__
+- **Output Tokens:** __OUTPUT_TOKENS__
+- **Estimated Cost:** $__COST__ (from Claude Code's reported total_cost_usd)
+- **Ballpark cost, comparable GPT-5-tier model:** $__GPT_BALLPARK__ (illustrative -- see methodology note above)
+- **Ballpark cost, comparable Gemini-tier model:** $__GEMINI_BALLPARK__ (illustrative -- see methodology note above)
+
+**Decisions:**
+- **Emoji prefix added to both the nav tab labels (in `src/lib/nav.js`) and the matching page heading in each route's `+page.svelte`.** This ensures visual consistency across the entire app — the emoji appears in the navigation sidebar and on every page the user lands on.
+- **Emoji choices follow the issue's suggested list exactly:** 💰 Net Worth, 📈 Forecast, 🏖️ Retirement, 🧾 Tax, 👴 Pensions, 💷 Dividends, 🏠 Property, 💎 Assets, 📅 Budget, 🏛️ Estate, ⚙️ Settings. All emoji are one character wide (with the 8️⃣ variant selector included for emoji like 🏖️) and easy to scan at a glance.
+- **The nav active-tab matching logic remains unchanged and continues to pass all tests.** The active-tab logic in `isActiveTab()` matches on `href`, not label text, so adding emoji to labels has zero impact on routing or active state detection. All 9 nav tests pass; all 1624 tests in the full suite pass.
+- **No connected/Settings page heading emoji was added.** The `/connect` page ("Connect GitHub") is a utility surface outside the core feature tabs and kept plain-text to signal that distinction. The Settings emoji (⚙️) is consistent with common UI conventions and is clearly distinguishable from feature tabs.
+
+**Trade-offs / deviations from prompt:**
+- **No changes made to test files.** The nav tests already pass because they match on `href`, not label text. No new test assertions were needed — the existing test suite is sufficient to catch any regressions.
+- **No dedicated emoji-lookup module created.** A simpler approach — inline emoji strings in `nav.js` labels and copying them into each page's `<h1>` — was chosen over storing emoji separately and having both places reference a shared definition, to keep the implementation minimal and the code easy to navigate without hunting across files.
