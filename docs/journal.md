@@ -1719,3 +1719,25 @@ Recomputed by the pipeline's "Patch journal metrics" step after every issue that
 **Trade-offs / deviations from prompt:**
 - **No changes made to test files.** The nav tests already pass because they match on `href`, not label text. No new test assertions were needed — the existing test suite is sufficient to catch any regressions.
 - **No dedicated emoji-lookup module created.** A simpler approach — inline emoji strings in `nav.js` labels and copying them into each page's `<h1>` — was chosen over storing emoji separately and having both places reference a shared definition, to keep the implementation minimal and the code easy to navigate without hunting across files.
+
+## Link to the GitHub repo in the nav shell — 2026-08-08
+<!-- METRICS:link-to-github-repo-in-nav-shell -->
+- **Execution Duration:** __DURATION__ seconds
+- **Model:** __MODEL__
+- **Turns:** __TURNS__
+- **Input Tokens:** __INPUT_TOKENS__
+- **Output Tokens:** __OUTPUT_TOKENS__
+- **Estimated Cost:** $__COST__ (from Claude Code's reported total_cost_usd)
+- **Ballpark cost, comparable GPT-5-tier model:** $__GPT_BALLPARK__ (illustrative -- see methodology note above)
+- **Ballpark cost, comparable Gemini-tier model:** $__GEMINI_BALLPARK__ (illustrative -- see methodology note above)
+
+**Decisions:**
+- **Added a GitHub icon link (🔗) in the header, positioned beside the GitHub connection indicator and theme toggle.** This provides users with quick access to the source code repository without leaving the application. The link uses the same button styling pattern as the `ThemeToggleButton` component for visual consistency.
+- **The link opens `https://github.com/mmorrow24work/uk-wealth-tracker` in a new tab with `target="_blank"` and `rel="noopener noreferrer"`.** The `rel` attribute prevents the new tab from accessing the `window.opener` object, a security best practice for external links.
+- **The button uses a chain-link emoji (🔗) with a screen-reader label ("GitHub repository") for accessibility.** This matches the existing pattern used by `ThemeToggleButton` (sun/moon emoji with labels) and ensures the control is usable and understandable for all users.
+- **No new dependencies were added.** The solution uses only the existing HTML `<a>` element and does not require any additional libraries or components.
+
+**Trade-offs / deviations from prompt:**
+- **Used a chain-link emoji (🔗) instead of an octocat icon or GitHub's mark.** Emoji are simpler to implement than SVG icons and are consistent with the emoji-first design of the navigation (issue #118 added emoji to nav tabs). A proper GitHub icon from shadcn-svelte would require additional setup and component extraction, while emoji are immediately available, small, and universally recognizable.
+- **The link is not in the nav menu itself but in the header's right-aligned area with the GitHub connection and theme controls.** This positions it as a utility function alongside other non-tab navigation items, which is the appropriate place for a "go to repo" action that users would expect to find alongside account/settings controls, not mixed with feature tabs.
+

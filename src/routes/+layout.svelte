@@ -52,6 +52,16 @@
 		</nav>
 		<div class="ml-auto flex items-center gap-2">
 			<a
+				href="https://github.com/mmorrow24work/uk-wealth-tracker"
+				target="_blank"
+				rel="noopener noreferrer"
+				class="inline-flex items-center justify-center h-9 w-9 rounded-md border border-border text-sm hover:bg-accent hover:text-accent-foreground"
+				title="View source code on GitHub"
+			>
+				<span aria-hidden="true">🔗</span>
+				<span class="sr-only">GitHub repository</span>
+			</a>
+			<a
 				href={resolve('/connect')}
 				aria-current={isActiveTab(page.url.pathname, '/connect') ? 'page' : undefined}
 				class="inline-block px-3 py-1.5 rounded text-sm no-underline border border-border text-foreground hover:bg-accent hover:text-accent-foreground"
