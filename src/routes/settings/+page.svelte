@@ -10,6 +10,7 @@
 
 	import DataManager from '../../components/DataManager.svelte';
 	import ThemeSettings from '../../components/ThemeSettings.svelte';
+	import TypographySettings from '../../components/TypographySettings.svelte';
 	import { hydrateAppData } from '$lib/index.js';
 
 	let ready = $state(false);
@@ -28,6 +29,7 @@
 
 <div class="mt-6 max-w-2xl flex flex-col gap-6">
 	<ThemeSettings />
+	<TypographySettings />
 
 	{#if ready}
 		<DataManager />
