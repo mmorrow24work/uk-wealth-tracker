@@ -47,6 +47,10 @@ export * from './mortgage-rate-rise.js';
 // the Forecast tab).
 export * from './one-off-costs.js';
 
+// Budget 2026–2031 policy changes overlay — unused pensions entering the estate for IHT from
+// 6 April 2027, and the frozen nil-rate bands. An estate overlay, not a forecast one (engine only).
+export * from './budget-policy.js';
+
 // FIRE / Coast FIRE maths — see the Retirement tab's FireCalculator component.
 export * from './fire.js';
 
