@@ -3,7 +3,9 @@ import { describe, expect, it } from 'vitest';
 import { createDebt, createInvestment, createMonthlyEntry } from './model.js';
 import { forecastFromEntries, forecastScenarios, projectScenario } from './forecast.js';
 import {
+	DEFAULT_NET_WORTH_LENS,
 	MONTH_TICK_TARGET,
+	NET_WORTH_LENSES,
 	autoFilledPointCount,
 	forecastBandSeries,
 	monthOnMonthChange,
@@ -11,6 +13,7 @@ import {
 	netWorthChartMonthTicks,
 	netWorthChartXDomain,
 	netWorthChartYExtent,
+	netWorthLensLabel,
 	netWorthMonthTicks,
 	netWorthPoint,
 	netWorthSeries,
@@ -219,6 +222,130 @@ describe('netWorthSeries', () => {
 		]);
 
 		expect(points).toHaveLength(2);
+	});
+});
+
+describe('net worth lenses', () => {
+	/**
+	 * @param {Partial<import('./types.js').Investment>[]} investments
+	 * @param {number[]} [debtBalances]
+	 * @returns {import('./types.js').MonthlyEntry}
+	 */
+	function lensEntry(investments, debtBalances = []) {
+		return createMonthlyEntry({
+			month: 4,
+			year: 2026,
+			investments: investments.map((overrides) => createInvestment(overrides)),
+			debts: debtBalances.map((balance) => createDebt({ balance }))
+		});
+	}
+
+	it('DEFAULT_NET_WORTH_LENS is household, and NET_WORTH_LENSES lists all three in toggle order', () => {
+		expect(DEFAULT_NET_WORTH_LENS).toBe('household');
+		expect(NET_WORTH_LENSES).toEqual(['household', 'you', 'partner']);
+	});
+
+	it('the default lens reproduces the pre-existing household totals exactly', () => {
+		const monthlyEntry = lensEntry(
+			[
+				{ value: 10_000, ownership_pct: 60 },
+				{ value: 5_000, ownership_pct: 100 }
+			],
+			[2_000]
+		);
+
+		const defaultPoint = netWorthPoint(monthlyEntry);
+		const explicitPoint = netWorthPoint(monthlyEntry, { lens: 'household' });
+
+		expect(defaultPoint).toEqual(explicitPoint);
+		expect(defaultPoint.investments).toBe(15_000);
+		expect(defaultPoint.net_worth).toBe(13_000);
+	});
+
+	it('scales a holding by its ownership share', () => {
+		const monthlyEntry = lensEntry([{ value: 100_000, ownership_pct: 30 }]);
+
+		expect(netWorthPoint(monthlyEntry, { lens: 'you' }).investments).toBe(30_000);
+		expect(netWorthPoint(monthlyEntry, { lens: 'partner' }).investments).toBe(70_000);
+	});
+
+	it('you and partner always sum back to household', () => {
+		const monthlyEntry = lensEntry([
+			{ value: 100_000, ownership_pct: 70 },
+			{ value: 40_000, ownership_pct: 0 },
+			{ value: 25_000, ownership_pct: 100 }
+		]);
+
+		const household = netWorthPoint(monthlyEntry, { lens: 'household' });
+		const you = netWorthPoint(monthlyEntry, { lens: 'you' });
+		const partner = netWorthPoint(monthlyEntry, { lens: 'partner' });
+
+		expect(you.investments + partner.investments).toBe(household.investments);
+		expect(you.net_worth + partner.net_worth).toBe(household.net_worth);
+	});
+
+	it('keeps a holding flagged exclude_from_net_worth out of every lens', () => {
+		const monthlyEntry = lensEntry([
+			{ value: 10_000, ownership_pct: 50 },
+			{ value: 400_000, ownership_pct: 50, exclude_from_net_worth: true }
+		]);
+
+		expect(netWorthPoint(monthlyEntry, { lens: 'household' }).investments).toBe(10_000);
+		expect(netWorthPoint(monthlyEntry, { lens: 'you' }).investments).toBe(5_000);
+		expect(netWorthPoint(monthlyEntry, { lens: 'partner' }).investments).toBe(5_000);
+	});
+
+	it('nets off the same debt total under every lens, since debts carry no ownership share', () => {
+		const monthlyEntry = lensEntry([{ value: 10_000, ownership_pct: 50 }], [3_000]);
+
+		for (const lens of NET_WORTH_LENSES) {
+			expect(netWorthPoint(monthlyEntry, { lens }).debts).toBe(3_000);
+		}
+	});
+
+	it('clamps an out-of-range ownership_pct rather than producing a negative share', () => {
+		// Simulates a document that never went through validateAppData (a hand-edited Gist, an
+		// older build) rather than something the app itself could construct.
+		const monthlyEntry = createMonthlyEntry({
+			month: 4,
+			year: 2026,
+			investments: [
+				{ ...createInvestment({ value: 10_000 }), ownership_pct: -20 },
+				{ ...createInvestment({ value: 5_000 }), ownership_pct: 140 }
+			]
+		});
+
+		const you = netWorthPoint(monthlyEntry, { lens: 'you' });
+		const partner = netWorthPoint(monthlyEntry, { lens: 'partner' });
+
+		expect(you.investments).toBe(5_000);
+		expect(partner.investments).toBe(10_000);
+		expect(you.investments + partner.investments).toBe(15_000);
+	});
+
+	it('applies the lens through netWorthSeries too', () => {
+		const points = netWorthSeries([lensEntry([{ value: 100_000, ownership_pct: 25 }])], {
+			lens: 'you'
+		});
+
+		expect(points[0].investments).toBe(25_000);
+	});
+});
+
+describe('netWorthLensLabel', () => {
+	it('labels household and you plainly', () => {
+		expect(netWorthLensLabel('household')).toBe('Household');
+		expect(netWorthLensLabel('you')).toBe('You');
+	});
+
+	it('labels partner with their recorded name', () => {
+		expect(netWorthLensLabel('partner', 'Alex')).toBe('Alex');
+	});
+
+	it('falls back to the literal word "Partner" when no name is recorded', () => {
+		expect(netWorthLensLabel('partner')).toBe('Partner');
+		expect(netWorthLensLabel('partner', '')).toBe('Partner');
+		expect(netWorthLensLabel('partner', '   ')).toBe('Partner');
 	});
 });
 

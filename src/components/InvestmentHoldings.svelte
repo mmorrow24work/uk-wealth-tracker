@@ -139,6 +139,10 @@
 	let boughtFor = $state('');
 	let yearPurchased = $state('');
 	let monthlyContribution = $state('');
+	/** @type {string | number} Starts `''` like `boughtFor`/`yearPurchased`, but unlike them this is
+	 * a `type="number"` input, so once touched Svelte's `bind:value` turns it into a real `number` —
+	 * {@link parseOwnershipPct} copes with both. */
+	let ownershipPct = $state('');
 
 	function resetForm() {
 		editingId = null;
@@ -149,6 +153,23 @@
 		boughtFor = '';
 		yearPurchased = '';
 		monthlyContribution = '';
+		ownershipPct = '';
+	}
+
+	/**
+	 * Blank or unparseable reads as `100` (full ownership), not `0` — an empty field means "didn't
+	 * think about it", and the sibling numeric fields' `Number(x) || 0` fallback would silently zero
+	 * out every holding whose ownership was never touched. Clamped to 0–100 so the form can't hand
+	 * the store a value `validateAppData` would immediately flag.
+	 *
+	 * @param {string | number} raw
+	 * @returns {number}
+	 */
+	function parseOwnershipPct(raw) {
+		if (typeof raw === 'string' && raw.trim() === '') return 100;
+		const parsed = Number(raw);
+		if (!Number.isFinite(parsed)) return 100;
+		return Math.min(100, Math.max(0, parsed));
 	}
 
 	function formFields() {
@@ -159,7 +180,8 @@
 			value: Number(value) || 0,
 			bought_for: boughtFor.trim() === '' ? null : Number(boughtFor),
 			year_purchased: yearPurchased.trim() === '' ? null : Number(yearPurchased),
-			monthly_contribution: Number(monthlyContribution) || 0
+			monthly_contribution: Number(monthlyContribution) || 0,
+			ownership_pct: parseOwnershipPct(ownershipPct)
 		};
 	}
 
@@ -173,6 +195,7 @@
 		boughtFor = investment.bought_for === null ? '' : String(investment.bought_for);
 		yearPurchased = investment.year_purchased === null ? '' : String(investment.year_purchased);
 		monthlyContribution = String(investment.monthly_contribution);
+		ownershipPct = investment.ownership_pct;
 	}
 
 	function addInvestment() {
@@ -376,7 +399,9 @@
 										? ''
 										: ` in ${investment.year_purchased}`} · {formatMoney(
 										investment.monthly_contribution
-									)}/mo
+									)}/mo{investment.ownership_pct === 100
+										? ''
+										: ` · ${investment.ownership_pct}% yours`}
 								</span>
 							</div>
 							<div class="flex items-center gap-2">
@@ -496,6 +521,20 @@
 						bind:value={monthlyContribution}
 						placeholder="0"
 						class="border border-input rounded-md px-2 py-1.5 text-sm w-32"
+					/>
+				</div>
+
+				<div class="flex flex-col gap-1">
+					<label class="text-sm font-medium" for="holding-ownership-pct">Ownership %</label>
+					<input
+						id="holding-ownership-pct"
+						type="number"
+						min="0"
+						max="100"
+						step="1"
+						bind:value={ownershipPct}
+						placeholder="100"
+						class="border border-input rounded-md px-2 py-1.5 text-sm w-24"
 					/>
 				</div>
 
