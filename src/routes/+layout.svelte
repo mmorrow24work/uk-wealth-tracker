@@ -6,6 +6,7 @@
 	import { resolve } from '$app/paths';
 	import { githubConnection, refreshGitHubConnection } from '$lib/github-auth.js';
 	import { NAV_TABS, isActiveTab } from '$lib/nav.js';
+	import { COMMIT_SHA, CODENAME } from '$lib/version.js';
 	import ThemeToggleButton from '../components/ThemeToggleButton.svelte';
 	import '../app.css';
 
@@ -76,4 +77,24 @@
 	<main class="flex-1 px-4 py-6">
 		{@render children()}
 	</main>
+
+	<footer
+		class="px-4 py-3 border-t border-border text-xs text-muted-foreground flex items-center gap-2 flex-wrap"
+	>
+		<span>BETA</span>
+		<span aria-hidden="true">·</span>
+		<span>"{CODENAME}"</span>
+		{#if COMMIT_SHA}
+			<span aria-hidden="true">·</span>
+			<a
+				href="https://github.com/mmorrow24work/uk-wealth-tracker/commit/{COMMIT_SHA}"
+				target="_blank"
+				rel="noopener noreferrer"
+				class="hover:text-foreground hover:underline"
+				title="View this build's commit on GitHub"
+			>
+				{COMMIT_SHA}
+			</a>
+		{/if}
+	</footer>
 </div>

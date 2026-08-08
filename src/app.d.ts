@@ -8,6 +8,10 @@ declare global {
 		// interface PageState {}
 		// interface Platform {}
 	}
+
+	// Build-time string replacement, not a runtime value -- see vite.config.js's `define` and
+	// $lib/version.js. Declared here so svelte-check knows it exists.
+	const __COMMIT_SHA__: string;
 }
 
 export {};

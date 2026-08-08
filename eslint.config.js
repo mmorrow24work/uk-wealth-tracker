@@ -14,7 +14,11 @@ export default defineConfig([
 	prettier,
 	svelte.configs.prettier,
 	{
-		languageOptions: { globals: { ...globals.browser, ...globals.node } }
+		languageOptions: {
+			// __COMMIT_SHA__ is a Vite `define` build-time string replacement (vite.config.js,
+			// $lib/version.js), not a real global -- declared here so the linter doesn't flag it.
+			globals: { ...globals.browser, ...globals.node, __COMMIT_SHA__: 'readonly' }
+		}
 	},
 
 	{
