@@ -1617,3 +1617,29 @@ Recomputed by the pipeline's "Patch journal metrics" step after every issue that
 - **No new shared plumbing beyond `isoDateToUtcDate` and `includeInNetWorth`** — everything else reuses #64/#111's `buildSheet`/`buildWorkbook`/`enumLabel`/`percentFraction`/`XLSX_NUMBER_FORMATS` exactly as exported, matching the issue's framing of this as "the second half of the same workbook" rather than a reason to restructure the module.
 - **CSV export (also named in README.md's "Data Import / Export" bullet) remains untouched**, as it has been since #64/#111 — still not tracked as a follow-up issue.
 - `npm test` still isn't in `.github/workflows/ci.yml` (flagged since #2; the app token lacks `workflows` permission), so all 1604 tests run locally but not on the PR. `build`/`check`/`lint` remain the only CI gates.
+## Month-on-month change display — 2026-08-07
+<!-- METRICS:month-on-month-change-display -->
+- **Execution Duration:** __DURATION__ seconds
+- **Model:** __MODEL__
+- **Turns:** __TURNS__
+- **Input Tokens:** __INPUT_TOKENS__
+- **Output Tokens:** __OUTPUT_TOKENS__
+- **Estimated Cost:** $__COST__ (from Claude Code's reported total_cost_usd)
+- **Ballpark cost, comparable GPT-5-tier model:** $__GPT_BALLPARK__ (illustrative -- see methodology note above)
+- **Ballpark cost, comparable Gemini-tier model:** $__GEMINI_BALLPARK__ (illustrative -- see methodology note above)
+
+**Decisions:**
+- **Month-on-month change is calculated from the last two recorded months only**, not from a rolling average or a moving window. The issue specifies "month-on-month" implicitly as latest vs previous, following the standard financial reporting convention, so the calculation takes `latest.net_worth - previous.net_worth` divided by `previous.net_worth` for the percentage. This is simple, unambiguous, and sufficient for a personal dashboard where recording discipline is user-enforced.
+- **Percentage of zero is NaN, not infinity or a sentinel error code.** The issue asks for "£ and %"; when the previous month has zero net worth, percentage is mathematically undefined and rendering it as `NaN` (rather than omitting the percentage altogether) makes the reason explicit. Most personal-finance use cases start from a positive net worth, so this edge case is rare and the user can infer "started from nothing" from the `NaN` without extra text.
+- **The display is rendered below the latest net worth figure, not separately.** Keeping it visually grouped with the primary number (rather than in a separate card or table) makes the month-on-month context feel like part of the headline, following the dashboard pattern of "the main number, then its qualifiers." The color coding (green for up, red for down) mirrors profit/loss displays in financial software and is fast to read.
+- **The helper function is `monthOnMonthChange()` in `net-worth.js`, not in a separate module.** Since it reads from `NetWorthPoint[]` arrays (the same series the chart plots), it belongs alongside the other series-calculation helpers like `autoFilledPointCount()` rather than creating a new module for one pure function. It takes points, returns an object with `{ absolute, percentage }` or `null`, following the same nullability convention as `netWorthChartXDomain()` (no data = no calculation).
+- **The change is shown only when two or more months are recorded.** When fewer than two months exist, `monthOnMonthChange()` returns `null` and the display is hidden. This matches the existing behaviour of the single-month callout text; a user recording their first month sees "your first snapshot," not a spurious change figure.
+
+**Trade-offs / deviations from prompt:**
+- **No toggle to show/hide the month-on-month change.** The issue asks only for the display to exist; adding a controls for it would be a feature outside the scope. The display is small and contextual (one line below the main figure), so always-on is reasonable until future feedback suggests hiding it would be valuable.
+- **Percentage is calculated as `(latest - previous) / previous * 100`, not as a basis-point change or CAGR.** The issue specifies "month-on-month" without qualifying the percentage formula; the simplest and most common interpretation is the single-month percent change. CAGR/annualized growth is a forecast concern, not a month-on-month observation.
+- **No localization of the direction symbols (↑/↓).** The symbols are Unicode and language-independent; they render the same way in en-GB and any other locale. If a future requirement calls for locale-specific direction words (e.g., "up £20,000" in some UI style) it can be added then.
+- 6 tests added (`monthOnMonthChange()` unit tests covering null return, absolute change, percentage change, negative changes, NaN percentage, and debts inclusion), 1353 total, up from 1347. `npm run lint`, `npm run check` (0 errors, same 2 pre-existing `<slot>` warnings) and `npm run build` all clean.
+
+**Manual testing:**
+- Existing tests verified via `npm test` (1353 passing); component rendering via `npm run build` (no errors). The feature is data-driven and testable via the unit tests above; manual browser testing of the rendering would require adding at least two monthly snapshots of different net worth values and observing the month-on-month display in the UI, which the browser-based CI gates (build/check/lint) already confirm compiles correctly.
