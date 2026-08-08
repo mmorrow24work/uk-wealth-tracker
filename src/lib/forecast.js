@@ -146,14 +146,16 @@ export function scenarioRateDelta(scenario, spreadPct = DEFAULT_SCENARIO_SPREAD)
 
 /**
  * What one month does differently from the rest of the projection — the seam the stress test overlay
- * (`stress-test.js`, issue #21) builds a crash and its recovery out of, and the income shock overlay
- * (`income-shock.js`, issue #133) builds a contribution drop out of, so either is this module's own
- * arithmetic with a month's worth of assumptions swapped rather than a second projector that could
- * drift from it.
+ * (`stress-test.js`, issue #21) builds a crash and its recovery out of, the income shock overlay
+ * (`income-shock.js`, issue #133) builds a contribution drop out of, and the one-off large costs
+ * overlay (`one-off-costs.js`, issue #136) builds a lump-sum withdrawal out of, so each is this
+ * module's own arithmetic with a month's worth of assumptions swapped rather than a second projector
+ * that could drift from it.
  *
- * `growthRate`/`factor` and `contributionFactor` are independent — a month can carry either, both or
- * neither, because a market crash and an income shock are different events that happen to share the
- * same hook. Between the growth fields, `factor` wins if both are given:
+ * `growthRate`/`factor`, `contributionFactor` and `withdrawal` are independent — a month can carry
+ * any combination of them, because a market crash, an income shock and a one-off cost are different
+ * events that happen to share the same hook. Between the growth fields, `factor` wins if both are
+ * given:
  *
  * - `growthRate` replaces the *base* annual assumption for that month, for every holding. The
  *   scenario shift and each holding's fund fee still apply on top, so a recovery window keeps the
@@ -170,17 +172,28 @@ export function scenarioRateDelta(scenario, spreadPct = DEFAULT_SCENARIO_SPREAD)
  *   moves normally (or per `growthRate`/`factor`, if both are in force the same month) — an income
  *   shock changes the standing order, not the market, which is the mirror image of convention 5 in
  *   `stress-test.js`'s module doc ("a crash changes the market, not the standing order").
+ * - `withdrawal` takes a stated number of pounds *out* of the pot for that month, after growth and
+ *   the contribution are applied — a wedding, a car, a home renovation. Spread pro rata across every
+ *   holding by its opening value that month (the same "no per-holding beta" reasoning
+ *   `stress-test.js`'s crash uses for its own market-wide `factor`: nothing in the data model says
+ *   which holding a lump sum comes out of), and capped at what the pot held at the start of that
+ *   month — a cost bigger than the whole pot drains it to zero rather than going negative, and the
+ *   shortfall is dropped rather than carried into a later month, matching `income-shock.js`'s and
+ *   `mortgage-rate-rise.js`'s own "nothing is ever paid back" convention.
  *
  * Either way the month's contribution is still paid on schedule (scaled by `contributionFactor` when
- * given), and the change in value is still booked to `growth` — a crash is negative growth, and a
- * smaller contribution is simply less of it, so {@link ForecastPoint}'s split keeps reconciling
- * (`compounding.js` → `reconcileCompounding`).
+ * given), and the change in value is still booked to `growth` — a crash is negative growth, a smaller
+ * contribution is simply less of it, and a withdrawal is negative growth too: there is no fourth
+ * bucket for it to sit in, so {@link ForecastPoint}'s split keeps reconciling (`compounding.js` →
+ * `reconcileCompounding`).
  *
  * @typedef {object} ForecastMonthAdjustment
  * @property {number} [growthRate] Annual growth (%) replacing the base assumption for this month.
  * @property {number} [factor] Multiplicative move for this month — `0.65` for a 35% fall.
  * @property {number} [contributionFactor] Multiplier on every holding's contribution for this month
  *   — `0` skips it entirely, `1` (the default when omitted) pays it in full.
+ * @property {number} [withdrawal] Pounds taken out of the pot this month, pro rata across holdings by
+ *   opening value — `0` (the default when omitted) takes nothing out.
  */
 
 /**
@@ -357,9 +370,19 @@ export function projectScenario(input = {}, options = {}) {
 				? { ...options, growthRate: adjustment.growthRate, holdingGrowthRates: {} }
 				: options;
 
+		// Weighted by each holding's *opening* value this month, the same value `factor` itself is
+		// applied to — one pass over `holdings` rather than a second one to re-derive the weights
+		// after growth has already moved them. Capped at what the pot held before this month's
+		// changes, so a withdrawal larger than the whole pot drains it to zero instead of going
+		// negative (see the module doc, `ForecastMonthAdjustment.withdrawal`).
+		const withdrawal =
+			typeof adjustment?.withdrawal === 'number' ? Math.max(0, adjustment.withdrawal) : 0;
+		const potBeforeWithdrawal = withdrawal > 0 ? totalValue(holdings) : 0;
+		const appliedWithdrawal = Math.min(withdrawal, potBeforeWithdrawal);
+
 		holdings = holdings.map((investment) => {
 			const paid = contributionForOffset(investment, offset) * contributionFactor;
-			const value =
+			const grown =
 				factor === null
 					? // The fee is already folded into the resolved rate, so the primitive must not apply
 						// it a second time — hence `applyFundFees: false` here regardless of the caller's
@@ -374,10 +397,20 @@ export function projectScenario(input = {}, options = {}) {
 						// minus the rate.
 						roundMoney(investment.value * factor + paid);
 
+			// This holding's share of the withdrawal, by its opening value's share of the whole pot —
+			// floored so a holding can never go negative even if rounding pushed its share past what
+			// `grown` holds.
+			const share =
+				appliedWithdrawal > 0
+					? roundMoney((investment.value / potBeforeWithdrawal) * appliedWithdrawal)
+					: 0;
+			const value = roundMoney(Math.max(0, grown - share));
+
 			contributions += paid;
 			// Growth is what the month's value change was *not* explained by the contribution, so
 			// the two always reconcile to the value change exactly, rounding included. A crash is
-			// therefore booked as negative growth, and a skipped contribution is simply less of it.
+			// therefore booked as negative growth, a skipped contribution is simply less of it, and a
+			// withdrawal is negative growth too.
 			growth += value - investment.value - paid;
 
 			return { ...investment, value };
