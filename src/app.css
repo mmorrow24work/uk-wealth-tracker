@@ -59,6 +59,35 @@
 	   spending two more categorical slots implying three unrelated series (#81). */
 	--chart-1: 213 68% 50%;
 	--chart-2: 17 82% 56%;
+
+	/* Font family and text size preferences (issue #117). `$lib/typography.js` toggles a class on
+	   `<html>`; the classes below (declared after `:root` so the cascade favours them) repoint
+	   `--app-font-family`/`--text-scale`, which `body`/`html` read further down. `--font-sans-stack`
+	   matches Tailwind v4's own default `--font-sans` (`node_modules/tailwindcss/theme.css`) so the
+	   "no preference chosen yet" appearance is pixel-identical to before this issue. */
+	--font-sans-stack:
+		-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', 'Noto Sans', Arial,
+		sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
+	--font-serif-stack: ui-serif, Georgia, Cambria, 'Times New Roman', Times, serif;
+	--font-rounded-stack: ui-rounded, 'SF Pro Rounded', Nunito, 'Segoe UI', Roboto, sans-serif;
+	--app-font-family: var(--font-sans-stack);
+	--text-scale: 1;
+}
+
+.font-serif {
+	--app-font-family: var(--font-serif-stack);
+}
+
+.font-rounded {
+	--app-font-family: var(--font-rounded-stack);
+}
+
+.text-scale-small {
+	--text-scale: 0.875;
+}
+
+.text-scale-large {
+	--text-scale: 1.125;
 }
 
 .dark {
@@ -118,9 +147,19 @@
 	--radius-sm: calc(var(--radius) - 4px);
 }
 
+/* `--text-scale` is a multiplier on the root font-size, not a one-off override of individual
+   elements: Tailwind's `text-*` utilities (`text-sm`, `text-lg`, ...) are `rem`-based, so scaling
+   `html`'s `font-size` scales every one of them app-wide with no per-component overrides -- the
+   shape issue #117 asked for. `100%` (not `16px`) keeps this relative to the browser's own
+   font-size setting rather than overriding it. */
+html {
+	font-size: calc(var(--text-scale) * 100%);
+}
+
 body {
 	background-color: hsl(var(--background));
 	color: hsl(var(--foreground));
+	font-family: var(--app-font-family);
 }
 
 /* Maps LayerChart's own chrome — axis rule, tick marks, tick-label halo, gridlines, the hover
