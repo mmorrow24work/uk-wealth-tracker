@@ -63,6 +63,12 @@ export * from './lifetime-gifts.js';
 // the bands and the bill themselves are estate.js's, run against each year's own figures.
 export * from './budget-policy.js';
 
+// Household budget & cash flow — totals `types.js`'s Budget (categories/bills/line items), ONS
+// benchmark comparison, and both partners' take-home income set against it. See the Budget tab's
+// BudgetTracker/HouseholdCashFlow components. Not to be confused with budget-policy.js above,
+// which is the Chancellor's Budget, not this one.
+export * from './budget.js';
+
 // Property gift-on-sale — turns a property sale's proceeds into lifetime-gifts.js Gifts, split
 // between named beneficiaries, rather than an ordinary disposal. Sits on top of lifetime-gifts.js,
 // so it must be re-exported after it.
