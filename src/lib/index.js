@@ -39,6 +39,10 @@ export * from './stress-test.js';
 // IncomeShockPanel component.
 export * from './income-shock.js';
 
+// Mortgage rate rise overlay on a forecast (engine only — #158 builds the panel and wires it into
+// the Forecast tab).
+export * from './mortgage-rate-rise.js';
+
 // FIRE / Coast FIRE maths — see the Retirement tab's FireCalculator component.
 export * from './fire.js';
 

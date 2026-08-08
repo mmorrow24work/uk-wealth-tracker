@@ -251,6 +251,34 @@ export function dealExpiryStatus(dealExpiry, now = new Date()) {
 }
 
 /* -------------------------------------------------------------------------- */
+/* Mortgage amortisation                                                      */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * One month of standard reducing-balance amortisation: interest accrues on the balance at
+ * `monthlyRate`, then `payment` is deducted, floored at zero rather than allowed to run negative.
+ * A payment smaller than the interest it accrues is not special-cased — the balance grows instead
+ * of shrinking, which is exactly what a real interest-only-or-worse mortgage does.
+ *
+ * The one place this arithmetic lives — {@link propertyEquityProjection} calls it twelve times a
+ * year and samples the result annually; `mortgage-rate-rise.js` (issue #134) calls it once a month
+ * to solve for the balance at an arbitrary future month — so there is one amortisation loop in the
+ * codebase, not two. Deliberately not rounded: round the *sampled* result once, not every month, so
+ * many months of compounding do not accumulate rounding drift into the answer (the same reasoning
+ * `propertyEquityProjection`'s own doc comment gives for `value`).
+ *
+ * @param {number} balance Opening balance for the month (£).
+ * @param {number} monthlyRate Monthly interest rate (a fraction, e.g. `0.04 / 12`, not a percent).
+ * @param {number} payment Amount deducted after interest accrues (£).
+ * @returns {number} Closing balance (£), floored at zero.
+ */
+export function amortiseMortgageMonth(balance, monthlyRate, payment) {
+	if (balance <= 0) return 0;
+	const interest = balance * monthlyRate;
+	return Math.max(0, balance + interest - payment);
+}
+
+/* -------------------------------------------------------------------------- */
 /* Equity growth projection                                                   */
 /* -------------------------------------------------------------------------- */
 
@@ -345,8 +373,11 @@ export function propertyEquityProjection(property, years = PROPERTY_PROJECTION_Y
 			value *= 1 + monthlyGrowthRate;
 
 			if (amortises && mortgageBalance > 0) {
-				const interest = mortgageBalance * monthlyInterestRate;
-				mortgageBalance = Math.max(0, mortgageBalance + interest - monthlyPayment);
+				mortgageBalance = amortiseMortgageMonth(
+					mortgageBalance,
+					monthlyInterestRate,
+					monthlyPayment
+				);
 			}
 		}
 
