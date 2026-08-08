@@ -47,8 +47,15 @@ export * from './mortgage-rate-rise.js';
 // the Forecast tab).
 export * from './one-off-costs.js';
 
+// Inheritance Tax: the £325,000 nil-rate band, the £175,000 residence nil-rate band and its
+// £2,000,000 taper, spouse/civil-partner transferable allowances, and the 40% charged above them.
+// The one place the codebase states those figures — see the Estate tab (`src/routes/estate/`),
+// still a placeholder until #140 builds the view over this.
+export * from './estate.js';
+
 // Budget 2026–2031 policy changes overlay — unused pensions entering the estate for IHT from
-// 6 April 2027, and the frozen nil-rate bands. An estate overlay, not a forecast one (engine only).
+// 6 April 2027, and the frozen nil-rate bands. An estate overlay, not a forecast one (engine only);
+// the bands and the bill themselves are estate.js's, run against each year's own figures.
 export * from './budget-policy.js';
 
 // FIRE / Coast FIRE maths — see the Retirement tab's FireCalculator component.

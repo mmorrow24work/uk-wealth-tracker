@@ -90,6 +90,12 @@
  */
 
 import { sumDebtBalances, sumInvestmentValues } from './debt.js';
+import {
+	NIL_RATE_BAND,
+	RESIDENCE_NIL_RATE_BAND,
+	estateAllowances,
+	inheritanceTax
+} from './estate.js';
 import { propertyEquity } from './property.js';
 import { definedContributionPot } from './retirement-income.js';
 
@@ -103,23 +109,21 @@ import { definedContributionPot } from './retirement-income.js';
 /* Statutory figures                                                           */
 /* -------------------------------------------------------------------------- */
 
-/** The nil-rate band (£). CLAUDE.md's domain rules state this figure for 2026/27. */
-export const NIL_RATE_BAND = 325_000;
-
-/**
- * The residence nil-rate band (£) — the extra allowance for a home passing to direct descendants.
- * CLAUDE.md's domain rules state this figure for 2026/27.
+/*
+ * The four statutory figures this module turns on — the £325,000 nil-rate band, the £175,000
+ * residence nil-rate band, its £2,000,000 taper threshold and the 40% rate — were declared here when
+ * this module was written, before `estate.js` existed. They now live in `estate.js` (#138), which is
+ * the one place in the codebase that states them, and are re-exported from here unchanged so that
+ * every reference in the comments and measures below still resolves to the same number a reader
+ * imports.
  */
-export const RESIDENCE_NIL_RATE_BAND = 175_000;
-
-/** Net estate above which the residence nil-rate band starts to taper away (£). */
-export const RNRB_TAPER_THRESHOLD = 2_000_000;
-
-/** £1 of residence nil-rate band is lost for every £2 of estate over the threshold. */
-export const RNRB_TAPER_DIVISOR = 2;
-
-/** The standard Inheritance Tax rate on the estate above the available bands (%). */
-export const IHT_RATE = 40;
+export {
+	IHT_RATE,
+	NIL_RATE_BAND,
+	RESIDENCE_NIL_RATE_BAND,
+	RNRB_TAPER_DIVISOR,
+	RNRB_TAPER_THRESHOLD
+} from './estate.js';
 
 /**
  * Indexed bands are rounded *up* to the nearest £1,000 — the statutory uprating rule (IHTA 1984
@@ -421,31 +425,40 @@ export function nilRateBandsForTaxYear(startYear, policy = {}) {
 }
 
 /**
- * The allowance an estate actually gets, after the residence nil-rate band's preconditions, its
- * £2,000,000 taper and any transferred bands.
+ * One tax year's bands and this policy's transferred share, as `estate.js` wants an estate stated —
+ * the adapter between this module's config-plus-tax-year shape and the statutory calculation.
  *
- * @typedef {object} AvailableBands
- * @property {number} nrb Nil-rate band including any transferred share (£).
- * @property {number} rnrb Residence nil-rate band actually available, after taper and the
- *   residence-value cap (£).
- * @property {number} rnrbBeforeTaper What the RNRB would have been without the taper (£).
- * @property {number} taperLoss RNRB withdrawn by the taper (£).
- * @property {number} residenceCapLoss RNRB lost because the home is worth less than the band (£).
- * @property {number} total `nrb + rnrb` — the estate can pass this much tax-free (£).
+ * The one thing this flattens is that `estate.js` carries a separate transferred percentage for each
+ * band, because a first estate can easily leave one unused and not the other, whereas this module
+ * offers a single {@link BudgetPolicy.transferredBandsPct} dial: a Budget overlay is about what the
+ * two measures cost, not about the detail of an earlier death, and two dials where one will do would
+ * be two more things to explain on a panel about something else. Both bands therefore get the same
+ * percentage here; a caller who needs them apart wants `estate.js` directly.
+ *
+ * @param {number} estateValue Net estate the taper is assessed on (£).
+ * @param {number | null} residenceValue Net value of the qualifying home (£), or `null` for none.
+ * @param {BudgetPolicy} config Already normalised.
+ * @returns {Partial<import('./estate.js').Estate>}
  */
+function asEstate(estateValue, residenceValue, config) {
+	return {
+		estateValue: Math.max(0, estateValue),
+		residenceValue: residenceValue ?? 0,
+		directDescendants: config.directDescendants,
+		transferredNilRateBandPct: config.transferredBandsPct,
+		transferredResidenceNilRateBandPct: config.transferredBandsPct
+	};
+}
 
 /**
  * Apply the residence nil-rate band's own rules to one tax year's bands.
  *
- * Three of them, in this order, because the order changes the answer:
- *
- * 1. **Preconditions.** No home passing to direct descendants, no RNRB at all.
- * 2. **The taper.** £1 of RNRB is withdrawn for every £2 of net estate above £2,000,000, applied to
- *    the RNRB *including* any transferred share — which is why the pension measure can cost an
- *    estate far more than 40% of the pot: the pot pushes the estate through the taper as well as
- *    into the taxable band.
- * 3. **The residence-value cap.** The RNRB is limited to what the home is actually worth net of its
- *    mortgage. A £120,000 home cannot attract a £175,000 allowance.
+ * The rules themselves — the direct-descendants precondition, the £2,000,000 taper applied to the
+ * band *including* any transferred share, and the cap at what the home is actually worth — are
+ * `estate.js`'s {@link import('./estate.js').estateAllowances}, which this delegates to with the
+ * year's own (possibly uprated) bands. Only the taper is worth restating here, because it is what
+ * makes the pension measure cost an estate far more than 40% of the pot: an unused pension pushes
+ * the estate through the taper as well as into the taxable band.
  *
  * `residenceValue` of `null` — no primary residence recorded — is treated as *no qualifying home*,
  * not as "unknown, assume the full band". That is the legally accurate reading (no home, no RNRB)
@@ -457,40 +470,14 @@ export function nilRateBandsForTaxYear(startYear, policy = {}) {
  * @param {NilRateBands} bands
  * @param {Partial<BudgetPolicy>} [policy]
  * @param {number | null} [residenceValue] Net value of the qualifying home (£), or `null` for none.
- * @returns {AvailableBands}
+ * @returns {import('./estate.js').AvailableBands}
  */
 export function availableNilRateBands(estateValue, bands, policy = {}, residenceValue = null) {
 	const config = normaliseBudgetPolicy(policy);
-	const transferMultiplier = 1 + config.transferredBandsPct / 100;
-
-	const nrb = roundMoney(bands.nrb * transferMultiplier);
-
-	if (!config.directDescendants || residenceValue === null || residenceValue <= 0) {
-		return {
-			nrb,
-			rnrb: 0,
-			rnrbBeforeTaper: 0,
-			taperLoss: 0,
-			residenceCapLoss: 0,
-			total: nrb
-		};
-	}
-
-	const rnrbBeforeTaper = roundMoney(bands.rnrb * transferMultiplier);
-	const taperLoss = roundMoney(
-		Math.min(rnrbBeforeTaper, Math.max(0, estateValue - RNRB_TAPER_THRESHOLD) / RNRB_TAPER_DIVISOR)
-	);
-	const afterTaper = roundMoney(rnrbBeforeTaper - taperLoss);
-	const capped = roundMoney(Math.min(afterTaper, residenceValue));
-
-	return {
-		nrb,
-		rnrb: capped,
-		rnrbBeforeTaper,
-		taperLoss,
-		residenceCapLoss: roundMoney(afterTaper - capped),
-		total: roundMoney(nrb + capped)
-	};
+	return estateAllowances(asEstate(estateValue, residenceValue, config), {
+		nrb: bands.nrb,
+		rnrb: bands.rnrb
+	});
 }
 
 /* -------------------------------------------------------------------------- */
@@ -642,13 +629,18 @@ export function estateValuation(position = {}, startYear = FIRST_MODELLED_TAX_YE
  * @property {number} tax Inheritance Tax due (£).
  * @property {number} effectiveRate `tax / estate` as a percent, `0` on an empty estate (%).
  * @property {NilRateBands} bands The statutory bands for the year.
- * @property {AvailableBands} available How much of them this estate got.
+ * @property {import('./estate.js').AvailableBands} available How much of them this estate got.
  * @property {EstateValuation} valuation
+ * @property {import('./estate.js').IhtCalculation} calculation The full `estate.js` working the
+ *   figures above are read off — bands used, unused allowance, the estate left after the bill.
  */
 
 /**
  * Value an estate for a tax year and work out the tax on it — bands, taper, 40%.
  *
+ * The tax itself is `estate.js`'s {@link import('./estate.js').inheritanceTax}, run against this
+ * year's bands rather than 2026/27's: this module's whole subject is what happens to those bands, so
+ * the two measures change the *inputs* to the statutory calculation and never the calculation.
  * A negative estate (more owed than owned) is taxable at nothing, not at a negative amount.
  *
  * @param {EstatePosition} [position]
@@ -657,25 +649,28 @@ export function estateValuation(position = {}, startYear = FIRST_MODELLED_TAX_YE
  * @returns {IhtLiability}
  */
 export function estateIht(position = {}, startYear = FIRST_MODELLED_TAX_YEAR, policy = {}) {
-	const valuation = estateValuation(position, startYear, policy);
-	const bands = nilRateBandsForTaxYear(startYear, policy);
-	const available = availableNilRateBands(valuation.total, bands, policy, valuation.residence);
+	const config = normaliseBudgetPolicy(policy);
+	const valuation = estateValuation(position, startYear, config);
+	const bands = nilRateBandsForTaxYear(startYear, config);
 
-	const estate = Math.max(0, valuation.total);
-	const taxable = roundMoney(Math.max(0, estate - available.total));
-	const tax = roundMoney((taxable * IHT_RATE) / 100);
+	const calculation = inheritanceTax(
+		asEstate(valuation.total, valuation.residence, config),
+		{ nrb: bands.nrb, rnrb: bands.rnrb },
+		valuation.taxYear
+	);
 
 	return {
 		startYear: valuation.startYear,
 		taxYear: valuation.taxYear,
-		estate: roundMoney(estate),
-		allowance: available.total,
-		taxable,
-		tax,
-		effectiveRate: estate > 0 ? (tax / estate) * 100 : 0,
+		estate: calculation.chargeableEstate,
+		allowance: calculation.allowances.total,
+		taxable: calculation.taxableEstate,
+		tax: calculation.tax,
+		effectiveRate: calculation.effectiveRate,
 		bands,
-		available,
-		valuation
+		available: calculation.allowances,
+		valuation,
+		calculation
 	};
 }
 
