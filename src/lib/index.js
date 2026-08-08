@@ -39,6 +39,10 @@ export * from './stress-test.js';
 // IncomeShockPanel component.
 export * from './income-shock.js';
 
+// Childcare cost overlay (a flat or stepped monthly bill for a stated date range) on a forecast —
+// see the Forecast tab's ChildcareCostPanel component.
+export * from './childcare-cost.js';
+
 // FIRE / Coast FIRE maths — see the Retirement tab's FireCalculator component.
 export * from './fire.js';
 

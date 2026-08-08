@@ -37,6 +37,10 @@
 	 * The income shock overlay (#133) is the `IncomeShockPanel` section at the bottom, alongside the
 	 * stress test: same wiring — the baseline `Forecast` and the position that produced it — but for a
 	 * job-loss/illness event that cuts contributions instead of a market crash.
+	 *
+	 * The childcare cost overlay (#135) is the `ChildcareCostPanel` section at the bottom, alongside
+	 * the income shock: same wiring again, but for a recurring monthly bill that reduces contribution
+	 * capacity for a stated date range instead of a percentage-based contribution drop.
 	 */
 	import {
 		DEFAULT_SCENARIO_SPREAD,
@@ -49,6 +53,7 @@
 	import { forecastAgeBounds, summariseForecastByAge } from '$lib/age-filter.js';
 	import { ageAtPoint, milestoneCrossings, retirementMarker } from '$lib/milestones.js';
 	import { createInvestment, createProfile } from '$lib/model.js';
+	import ChildcareCostPanel from './ChildcareCostPanel.svelte';
 	import CompoundingPanel from './CompoundingPanel.svelte';
 	import IncomeShockPanel from './IncomeShockPanel.svelte';
 	import StressTestPanel from './StressTestPanel.svelte';
@@ -648,6 +653,15 @@
 			/>
 
 			<IncomeShockPanel
+				{forecast}
+				{position}
+				options={forecastOptions}
+				offsets={rowOffsets}
+				dobYear={parsedDobYear}
+				dobMonth={parsedDobMonth}
+			/>
+
+			<ChildcareCostPanel
 				{forecast}
 				{position}
 				options={forecastOptions}
