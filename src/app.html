@@ -5,6 +5,21 @@
 		<meta name="viewport" content="width=device-width, initial-scale=1" />
 		<meta name="text-scale" content="scale" />
 		<title>uk-wealth-tracker</title>
+		<script>
+			// Dark mode (issue #116), applied before Svelte hydrates so the first paint is never the
+			// wrong theme. Mirrors `src/lib/theme.js`'s `resolveTheme()` (stored choice, else the OS
+			// preference) — duplicated here because this file is static markup and can't import that
+			// module. Keep the two in sync if this logic changes.
+			(function () {
+				try {
+					var stored = localStorage.getItem('uk-wealth-tracker:theme');
+					var dark =
+						stored === 'dark' ||
+						(stored !== 'light' && matchMedia('(prefers-color-scheme: dark)').matches);
+					if (dark) document.documentElement.classList.add('dark');
+				} catch (e) {}
+			})();
+		</script>
 		%sveltekit.head%
 	</head>
 	<body data-sveltekit-preload-data="hover">
