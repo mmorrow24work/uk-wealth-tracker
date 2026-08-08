@@ -63,6 +63,12 @@ export * from './lifetime-gifts.js';
 // the bands and the bill themselves are estate.js's, run against each year's own figures.
 export * from './budget-policy.js';
 
+// The "if I died today" engine: values the estate from tracked data (budget-policy.js's
+// estateValuation, forecast.js's positionFromEntries), folds in IhtSettings and runs it through
+// lifetime-gifts.js's inheritanceTaxWithGifts, then prices named beneficiaries against the result.
+// Engine only — the Estate tab's views are #166/#167.
+export * from './estate-plan.js';
+
 // FIRE / Coast FIRE maths — see the Retirement tab's FireCalculator component.
 export * from './fire.js';
 

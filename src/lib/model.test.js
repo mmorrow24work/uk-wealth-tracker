@@ -7,6 +7,7 @@ import {
 	createActivityLogEntry,
 	createAppData,
 	createAsset,
+	createBeneficiary,
 	createBudget,
 	createBudgetBill,
 	createBudgetCategory,
@@ -14,6 +15,7 @@ import {
 	createDebt,
 	createDividend,
 	createId,
+	createIhtSettings,
 	createInvestment,
 	createMilestone,
 	createMonthlyEntry,
@@ -33,7 +35,7 @@ import {
 /* -------------------------------------------------------------------------- */
 
 describe('document shape matches README.md', () => {
-	it('has the eight top-level sections plus a schema version and activity log', () => {
+	it('has the eight top-level sections plus a schema version, activity log and the estate/IHT fields', () => {
 		expect(Object.keys(createAppData()).sort()).toEqual(
 			[
 				'schema_version',
@@ -45,7 +47,10 @@ describe('document shape matches README.md', () => {
 				'dividends',
 				'milestones',
 				'budget',
-				'activity_log'
+				'activity_log',
+				'gifts',
+				'beneficiaries',
+				'iht_settings'
 			].sort()
 		);
 	});
@@ -178,6 +183,18 @@ describe('document shape matches README.md', () => {
 				'entity_name',
 				'snapshot',
 				'reverted'
+			]
+		],
+		['beneficiaries[]', createBeneficiary(), ['id', 'name', 'relationship', 'share_pct', 'notes']],
+		[
+			'iht_settings',
+			createIhtSettings(),
+			[
+				'spouse_exempt',
+				'direct_descendants',
+				'transferred_nil_rate_band_pct',
+				'transferred_residence_nil_rate_band_pct',
+				'funeral_expenses'
 			]
 		]
 	];
@@ -540,6 +557,70 @@ describe('normaliseAppData', () => {
 		const data = normaliseAppData({ activity_log: [{ action: 'added', entity_type: 'debt' }] });
 		expect(data.activity_log[0].id).toMatch(/^log_/);
 	});
+
+	it('normalises a stored gift structurally, without validating its exemption', () => {
+		const data = normaliseAppData({
+			gifts: [
+				{ date: '2020-06-15', amount: '10000', recipient: 'Jo', exemption: 'not_a_real_exemption' }
+			]
+		});
+		expect(data.gifts[0]).toEqual({
+			id: expect.stringMatching(/^gift_/),
+			date: '2020-06-15',
+			amount: 10_000,
+			recipient: 'Jo',
+			description: '',
+			// lifetime-gifts.js's own normaliseGift is what falls this back to 'none' — model.js's
+			// pass is structural only, so an unrecognised code round-trips unchanged here.
+			exemption: 'not_a_real_exemption'
+		});
+	});
+
+	it('rejects a calendar-invalid gift date', () => {
+		const data = normaliseAppData({ gifts: [{ date: '2026-02-30', amount: 500 }] });
+		expect(data.gifts[0].date).toBeNull();
+	});
+
+	it('generates an id for a gift that arrives without one', () => {
+		const data = normaliseAppData({ gifts: [{ amount: 500 }] });
+		expect(data.gifts[0].id).toMatch(/^gift_/);
+	});
+
+	it('normalises a beneficiary, coercing a numeric-string share', () => {
+		const data = normaliseAppData({
+			beneficiaries: [{ name: 'Jo', relationship: 'Daughter', share_pct: '50' }]
+		});
+		expect(data.beneficiaries[0]).toEqual({
+			id: expect.stringMatching(/^ben_/),
+			name: 'Jo',
+			relationship: 'Daughter',
+			share_pct: 50,
+			notes: ''
+		});
+	});
+
+	it('defaults iht_settings and coerces a half-typed one', () => {
+		expect(normaliseAppData({}).iht_settings).toEqual({
+			spouse_exempt: false,
+			direct_descendants: true,
+			transferred_nil_rate_band_pct: 0,
+			transferred_residence_nil_rate_band_pct: 0,
+			funeral_expenses: 0
+		});
+
+		const data = normaliseAppData({
+			iht_settings: {
+				spouse_exempt: true,
+				direct_descendants: false,
+				transferred_nil_rate_band_pct: '100',
+				funeral_expenses: 'a lot'
+			}
+		});
+		expect(data.iht_settings.spouse_exempt).toBe(true);
+		expect(data.iht_settings.direct_descendants).toBe(false);
+		expect(data.iht_settings.transferred_nil_rate_band_pct).toBe(100);
+		expect(data.iht_settings.funeral_expenses).toBe(0);
+	});
 });
 
 /* -------------------------------------------------------------------------- */
@@ -779,5 +860,57 @@ describe('validateAppData', () => {
 			]
 		});
 		expect(paths(validateAppData(data))).toContain('activity_log[1].id');
+	});
+
+	it('rejects duplicate ids within gifts, and a negative gift amount', () => {
+		const data = createAppData({
+			gifts: [
+				{
+					id: 'gift_1',
+					date: null,
+					amount: -500,
+					recipient: '',
+					description: '',
+					exemption: 'none'
+				},
+				{ id: 'gift_1', date: null, amount: 500, recipient: '', description: '', exemption: 'none' }
+			]
+		});
+		const reported = paths(validateAppData(data));
+		expect(reported).toContain('gifts[0].amount');
+		expect(reported).toContain('gifts[1].id');
+	});
+
+	it('rejects duplicate beneficiary ids and an out-of-range share', () => {
+		const data = createAppData({
+			beneficiaries: [
+				createBeneficiary({ id: 'ben_1', share_pct: 140 }),
+				createBeneficiary({ id: 'ben_1' })
+			]
+		});
+		const reported = paths(validateAppData(data));
+		expect(reported).toContain('beneficiaries[0].share_pct');
+		expect(reported).toContain('beneficiaries[1].id');
+	});
+
+	it('does not require beneficiary shares to sum to 100 — a wish, not a legal instrument', () => {
+		const data = createAppData({
+			beneficiaries: [createBeneficiary({ share_pct: 30 }), createBeneficiary({ share_pct: 30 })]
+		});
+		expect(validateAppData(data).valid).toBe(true);
+	});
+
+	it('rejects out-of-range transferred bands and a negative funeral cost', () => {
+		const data = createAppData({
+			iht_settings: createIhtSettings({
+				transferred_nil_rate_band_pct: 150,
+				transferred_residence_nil_rate_band_pct: -10,
+				funeral_expenses: -1
+			})
+		});
+		const reported = paths(validateAppData(data));
+		expect(reported).toContain('iht_settings.transferred_nil_rate_band_pct');
+		expect(reported).toContain('iht_settings.transferred_residence_nil_rate_band_pct');
+		expect(reported).toContain('iht_settings.funeral_expenses');
 	});
 });

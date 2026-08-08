@@ -208,6 +208,17 @@ milestones[]
 
 budget[]
   categories[], bills[], line_items[]
+
+gifts[]
+  id, date, amount, recipient, description, exemption
+
+beneficiaries[]
+  id, name, relationship, share_pct, notes
+
+iht_settings
+  spouse_exempt, direct_descendants
+  transferred_nil_rate_band_pct, transferred_residence_nil_rate_band_pct
+  funeral_expenses
 ```
 
 ---
