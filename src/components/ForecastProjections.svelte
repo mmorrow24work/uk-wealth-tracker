@@ -37,6 +37,10 @@
 	 * The income shock overlay (#133) is the `IncomeShockPanel` section at the bottom, alongside the
 	 * stress test: same wiring — the baseline `Forecast` and the position that produced it — but for a
 	 * job-loss/illness event that cuts contributions instead of a market crash.
+	 *
+	 * The one-off large costs overlay (#136) is the `OneOffCostsPanel` section at the bottom,
+	 * alongside its two siblings: same wiring again, but for an editable list of named lump-sum
+	 * withdrawals (a wedding, a car, a home renovation) instead of a single dial.
 	 */
 	import {
 		DEFAULT_SCENARIO_SPREAD,
@@ -51,6 +55,7 @@
 	import { createInvestment, createProfile } from '$lib/model.js';
 	import CompoundingPanel from './CompoundingPanel.svelte';
 	import IncomeShockPanel from './IncomeShockPanel.svelte';
+	import OneOffCostsPanel from './OneOffCostsPanel.svelte';
 	import StressTestPanel from './StressTestPanel.svelte';
 	import Card from './ui/card.svelte';
 
@@ -648,6 +653,15 @@
 			/>
 
 			<IncomeShockPanel
+				{forecast}
+				{position}
+				options={forecastOptions}
+				offsets={rowOffsets}
+				dobYear={parsedDobYear}
+				dobMonth={parsedDobMonth}
+			/>
+
+			<OneOffCostsPanel
 				{forecast}
 				{position}
 				options={forecastOptions}

@@ -43,6 +43,9 @@ export * from './income-shock.js';
 // the Forecast tab).
 export * from './mortgage-rate-rise.js';
 
+// One-off large costs overlay on a forecast — see the Forecast tab's OneOffCostsPanel component.
+export * from './one-off-costs.js';
+
 // FIRE / Coast FIRE maths — see the Retirement tab's FireCalculator component.
 export * from './fire.js';
 
