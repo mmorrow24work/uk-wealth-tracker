@@ -8,7 +8,7 @@
 	let monthlyEntries = $state([]);
 </script>
 
-<h1>Forecast</h1>
+<h1>📈 Forecast</h1>
 <p>
 	Where your net worth lands under three growth assumptions, live as you drag the growth and spread
 	sliders below, plus when you cross the £100k/£250k/£500k/£1M milestones and reach retirement age.

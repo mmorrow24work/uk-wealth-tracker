@@ -31,7 +31,7 @@
 	const latestInvestments = $derived(positionFromEntries(monthlyEntries)?.investments ?? []);
 </script>
 
-<h1>Tax</h1>
+<h1>🧾 Tax</h1>
 <p>
 	Where each pound of your salary is taxed, for the 2026/27 tax year — the England, Wales &amp;
 	Northern Ireland ladder and Scotland's six bands, with the personal allowance and its 60% taper

@@ -24,7 +24,7 @@
 	});
 </script>
 
-<h1>Retirement</h1>
+<h1>🏖️ Retirement</h1>
 <p>
 	Your magic number, your Coast FIRE number, and how long the pot lasts once you start spending it —
 	live as you drag the target income, monthly saving, growth and withdrawal-rate sliders below.

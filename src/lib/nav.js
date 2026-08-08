@@ -26,17 +26,17 @@
  * @type {NavTab[]}
  */
 export const NAV_TABS = [
-	{ id: 'dashboard', href: '/', label: 'Net Worth' },
-	{ id: 'forecast', href: '/forecast', label: 'Forecast' },
-	{ id: 'retirement', href: '/retirement', label: 'Retirement' },
-	{ id: 'tax', href: '/tax', label: 'Tax' },
-	{ id: 'pensions', href: '/pensions', label: 'Pensions' },
-	{ id: 'dividends', href: '/dividends', label: 'Dividends' },
-	{ id: 'property', href: '/property', label: 'Property' },
-	{ id: 'assets', href: '/assets', label: 'Assets' },
-	{ id: 'budget', href: '/budget', label: 'Budget' },
-	{ id: 'estate', href: '/estate', label: 'Estate' },
-	{ id: 'settings', href: '/settings', label: 'Settings' }
+	{ id: 'dashboard', href: '/', label: '💰 Net Worth' },
+	{ id: 'forecast', href: '/forecast', label: '📈 Forecast' },
+	{ id: 'retirement', href: '/retirement', label: '🏖️ Retirement' },
+	{ id: 'tax', href: '/tax', label: '🧾 Tax' },
+	{ id: 'pensions', href: '/pensions', label: '👴 Pensions' },
+	{ id: 'dividends', href: '/dividends', label: '💷 Dividends' },
+	{ id: 'property', href: '/property', label: '🏠 Property' },
+	{ id: 'assets', href: '/assets', label: '💎 Assets' },
+	{ id: 'budget', href: '/budget', label: '📅 Budget' },
+	{ id: 'estate', href: '/estate', label: '🏛️ Estate' },
+	{ id: 'settings', href: '/settings', label: '⚙️ Settings' }
 ];
 
 /**

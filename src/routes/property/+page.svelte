@@ -27,7 +27,7 @@
 	});
 </script>
 
-<h1>Property</h1>
+<h1>🏠 Property</h1>
 <p>
 	Property tracking — primary residence, buy-to-let and holiday home types with value, outstanding
 	mortgage, monthly payment, interest rate, mortgage type and deal expiry date, plus each property's

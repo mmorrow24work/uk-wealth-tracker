@@ -40,7 +40,7 @@
 	});
 </script>
 
-<h1>Dividends</h1>
+<h1>💷 Dividends</h1>
 <p>
 	The dividend income planner — per-holding value, yield and strategy, what the £500/yr dividend
 	allowance and the GIA dividend rates leave you with after tax, plus a building-phase (reinvest) vs
