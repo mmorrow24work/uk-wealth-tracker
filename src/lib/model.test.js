@@ -17,6 +17,7 @@ import {
 	createInvestment,
 	createMilestone,
 	createMonthlyEntry,
+	createPartner,
 	createPension,
 	createProfile,
 	createProperty,
@@ -33,11 +34,12 @@ import {
 /* -------------------------------------------------------------------------- */
 
 describe('document shape matches README.md', () => {
-	it('has the eight top-level sections plus a schema version and activity log', () => {
+	it('has the eight top-level sections plus a schema version, partner and activity log', () => {
 		expect(Object.keys(createAppData()).sort()).toEqual(
 			[
 				'schema_version',
 				'profile',
+				'partner',
 				'monthly_entries',
 				'pensions',
 				'properties',
@@ -69,6 +71,19 @@ describe('document shape matches README.md', () => {
 				'tax_region',
 				'gross_salary',
 				'pension_pct'
+			]
+		],
+		[
+			'partner',
+			createPartner(),
+			[
+				'name',
+				'dob_month',
+				'dob_year',
+				'retirement_age',
+				'gross_salary',
+				'pension_pct',
+				'ni_qualifying_years'
 			]
 		],
 		[
@@ -315,10 +330,23 @@ describe('factories', () => {
 		expect(pension.ni_qualifying_years).toBeNull();
 		expect(createInvestment().bought_for).toBeNull();
 		expect(createProfile().dob_year).toBeNull();
+		expect(createPartner().dob_year).toBeNull();
+		expect(createPartner().ni_qualifying_years).toBeNull();
 	});
 
 	it('produce a valid document out of the box', () => {
 		expect(validateAppData(createAppData())).toEqual({ valid: true, errors: [] });
+	});
+
+	it('defaults a new document to no partner — the normal case, not a blank record', () => {
+		expect(createAppData().partner).toBeNull();
+	});
+
+	it('apply overrides over the defaults for a partner', () => {
+		const partner = createPartner({ name: 'Alex', retirement_age: 60, gross_salary: 45_000 });
+		expect(partner).toMatchObject({ name: 'Alex', retirement_age: 60, gross_salary: 45_000 });
+		expect(partner.pension_pct).toBe(0);
+		expect(partner.ni_qualifying_years).toBeNull();
 	});
 });
 
@@ -367,6 +395,7 @@ describe('normaliseAppData', () => {
 	it('round-trips a document through JSON unchanged', () => {
 		const data = createAppData({
 			profile: createProfile({ name: 'Test', dob_month: 4, dob_year: 1985, gross_salary: 62_000 }),
+			partner: createPartner({ name: 'Alex', dob_month: 9, dob_year: 1987, gross_salary: 45_000 }),
 			monthly_entries: [
 				createMonthlyEntry({
 					month: 6,
@@ -408,6 +437,35 @@ describe('normaliseAppData', () => {
 
 	it('drops unknown top-level keys', () => {
 		expect(normaliseAppData({ hacked: true })).not.toHaveProperty('hacked');
+	});
+
+	it('normalises a document with no partner key at all — saved before partners existed', () => {
+		expect(normaliseAppData({ profile: { name: 'Solo' } }).partner).toBeNull();
+	});
+
+	it('keeps an explicit null partner null', () => {
+		expect(normaliseAppData({ partner: null }).partner).toBeNull();
+	});
+
+	it('does not coerce a non-object partner into a phantom record', () => {
+		expect(normaliseAppData({ partner: 'not a partner' }).partner).toBeNull();
+		expect(normaliseAppData({ partner: 42 }).partner).toBeNull();
+		expect(normaliseAppData({ partner: ['a', 'b'] }).partner).toBeNull();
+	});
+
+	it('normalises a stored partner, dropping unknown fields', () => {
+		const data = normaliseAppData({
+			partner: { name: 'Alex', gross_salary: '45000', unexpected: 'dropped' }
+		});
+		expect(data.partner).toEqual({
+			name: 'Alex',
+			dob_month: null,
+			dob_year: null,
+			retirement_age: 67,
+			gross_salary: 45_000,
+			pension_pct: 0,
+			ni_qualifying_years: null
+		});
 	});
 
 	it('coerces numeric strings from forms and hand-edited JSON', () => {
@@ -704,6 +762,33 @@ describe('validateAppData', () => {
 			budget: createBudget({ bills: [createBudgetBill({ due_day: 42 })] })
 		});
 		expect(paths(validateAppData(data))).toContain('budget.bills[0].due_day');
+	});
+
+	it('accepts a null partner — no partner recorded', () => {
+		const data = createAppData({ partner: null });
+		expect(validateAppData(data)).toEqual({ valid: true, errors: [] });
+	});
+
+	it('accepts a populated, sensible partner', () => {
+		const data = createAppData({
+			partner: createPartner({ dob_month: 9, dob_year: 1987, retirement_age: 60, pension_pct: 5 })
+		});
+		expect(validateAppData(data)).toEqual({ valid: true, errors: [] });
+	});
+
+	it('rejects out-of-range partner fields', () => {
+		const data = createAppData({
+			partner: createPartner({ dob_month: 13, retirement_age: 200, pension_pct: -5 })
+		});
+		const reported = paths(validateAppData(data));
+		expect(reported).toContain('partner.dob_month');
+		expect(reported).toContain('partner.retirement_age');
+		expect(reported).toContain('partner.pension_pct');
+	});
+
+	it('rejects partner NI years outside 0–60', () => {
+		const data = createAppData({ partner: createPartner({ ni_qualifying_years: 99 }) });
+		expect(paths(validateAppData(data))).toContain('partner.ni_qualifying_years');
 	});
 
 	it('flags a document written by a newer build', () => {
