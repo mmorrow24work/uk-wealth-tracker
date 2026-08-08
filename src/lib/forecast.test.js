@@ -671,6 +671,112 @@ describe('projectScenario with adjustMonth', () => {
 			expect(points).toEqual(projectScenario(contributing, { growthRate: 5 }));
 		});
 	});
+
+	describe('withdrawal', () => {
+		it('takes a stated amount out of the month it names, and nothing else', () => {
+			const points = projectScenario(position, {
+				growthRate: 5,
+				adjustMonth: (offset) => (offset === 6 ? { withdrawal: 2_000 } : null)
+			});
+			const plain = projectScenario(position, { growthRate: 5 });
+
+			expect(points[5]).toEqual(plain[5]);
+			expect(points[6].investments).toBeCloseTo(plain[6].investments - 2_000, PENNY);
+			// The month after is ordinary growth again, on the smaller pot.
+			expect(points[7].investments / points[6].investments).toBeCloseTo(
+				plain[7].investments / plain[6].investments,
+				4
+			);
+		});
+
+		it('books a withdrawal as negative growth, so the split still reconciles', () => {
+			const points = projectScenario(
+				{ ...position, investments: [holding({ monthly_contribution: 200, fund_fee: 0 })] },
+				{ growthRate: 5, adjustMonth: (offset) => (offset === 3 ? { withdrawal: 1_500 } : null) }
+			);
+
+			for (const point of points) {
+				expect(point.investments).toBeCloseTo(10_000 + point.contributions + point.growth, PENNY);
+			}
+			expect(points[3].growth).toBeLessThan(points[2].growth);
+		});
+
+		it('still pays the month contribution — the withdrawal comes out after it', () => {
+			const points = projectScenario(
+				{ ...position, investments: [holding({ monthly_contribution: 500, fund_fee: 0 })] },
+				{ growthRate: 5, adjustMonth: (offset) => (offset === 4 ? { withdrawal: 300 } : null) }
+			);
+			expect(points[4].contributions).toBe(2_000);
+			expect(points[4].investments).toBeCloseTo(
+				points[3].investments * (1 + monthlyGrowthRate(5)) + 500 - 300,
+				2
+			);
+		});
+
+		it('splits pro rata across holdings by opening value', () => {
+			const points = projectScenario(
+				{
+					...position,
+					investments: [
+						holding({ id: 'inv_a', value: 8_000, monthly_contribution: 0, fund_fee: 0 }),
+						holding({ id: 'inv_b', value: 2_000, monthly_contribution: 0, fund_fee: 0 })
+					]
+				},
+				{ growthRate: 0, adjustMonth: (offset) => (offset === 1 ? { withdrawal: 1_000 } : null) }
+			);
+			// inv_a holds 80% of the pot going into the month, so it absorbs 80% of the £1,000 — £800
+			// — leaving £7,200; inv_b absorbs the remaining £200, leaving £1,800.
+			expect(points[1].investments).toBeCloseTo(9_000, PENNY);
+		});
+
+		it('caps at what the pot holds, and drops the rest rather than going negative', () => {
+			const points = projectScenario(
+				{
+					...position,
+					investments: [holding({ value: 500, monthly_contribution: 0, fund_fee: 0 })]
+				},
+				{ growthRate: 0, adjustMonth: (offset) => (offset === 1 ? { withdrawal: 5_000 } : null) }
+			);
+			expect(points[1].investments).toBe(0);
+			expect(points[2].investments).toBe(0);
+		});
+
+		it('has no effect at 0, the default when a month adjustment omits it', () => {
+			const points = projectScenario(position, {
+				growthRate: 5,
+				adjustMonth: (offset) => (offset === 6 ? { withdrawal: 0 } : null)
+			});
+			expect(points).toEqual(projectScenario(position, { growthRate: 5 }));
+		});
+
+		it('combines with a stated move and a contribution factor in the same month', () => {
+			const points = projectScenario(
+				{ ...position, investments: [holding({ monthly_contribution: 500, fund_fee: 0 })] },
+				{
+					growthRate: 5,
+					adjustMonth: (offset) =>
+						offset === 6 ? { factor: 0.5, contributionFactor: 0, withdrawal: 1_000 } : null
+				}
+			);
+			expect(points[6].investments).toBeCloseTo(points[5].investments * 0.5 - 1_000, PENNY);
+			expect(points[6].contributions).toBe(points[5].contributions);
+		});
+
+		it('reaches every scenario through forecastScenarios', () => {
+			const forecast = forecastScenarios(position, {
+				growthRate: 5,
+				adjustMonth: (offset) => (offset === 6 ? { withdrawal: 1_000 } : null)
+			});
+			const plain = forecastScenarios(position, { growthRate: 5 });
+
+			for (const scenario of FORECAST_SCENARIOS) {
+				expect(forecast.series[scenario][6].investments).toBeCloseTo(
+					plain.series[scenario][6].investments - 1_000,
+					PENNY
+				);
+			}
+		});
+	});
 });
 
 /* -------------------------------------------------------------------------- */
