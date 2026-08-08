@@ -253,6 +253,40 @@
  */
 
 /**
+ * A named beneficiary and the share of the net estate they are wished to receive — README.md →
+ * "Estate & IHT Planning Suite": "Who-gets-what wishes per beneficiary" (issue #140). A wish, not a
+ * legal instrument: nothing here enforces that every `share_pct` across the list sums to 100 —
+ * `estate-plan.js`'s `beneficiaryShares()` reports that as under- or over-allocated rather than this
+ * shape preventing it.
+ *
+ * @typedef {object} Beneficiary
+ * @property {string} id
+ * @property {string} name
+ * @property {string} relationship Free text, e.g. "Spouse", "Daughter", "Charity".
+ * @property {number} share_pct Wished share of the net estate, 0–100.
+ * @property {string} notes Free text.
+ */
+
+/**
+ * The Inheritance Tax assumptions this app's tracked net worth data cannot supply on its own —
+ * `estate-plan.js`'s `estateSnapshot()` folds these in alongside the estate value it derives from
+ * `monthly_entries`/`properties`/`assets`/`pensions`.
+ *
+ * @typedef {object} IhtSettings
+ * @property {boolean} spouse_exempt Whether the whole net estate is wished to pass to a spouse or
+ *   civil partner, exempt without limit — the simplification an "if I died today" snapshot takes
+ *   before a full who-gets-what split exists (see `beneficiaries` above, and #167).
+ * @property {boolean} direct_descendants Whether a home is passing to children, grandchildren or
+ *   other direct descendants — the residence nil-rate band's own precondition (`estate.js`).
+ * @property {number} transferred_nil_rate_band_pct Percentage of a predeceased spouse's or civil
+ *   partner's nil-rate band brought forward, 0–100.
+ * @property {number} transferred_residence_nil_rate_band_pct The same for the residence nil-rate
+ *   band, stated separately because a first estate can leave one unused and not the other.
+ * @property {number} funeral_expenses Funeral costs (£) — deducted from the estate alongside
+ *   whatever this app's own tracked mortgages/loans/debts already net off.
+ */
+
+/**
  * One row in the activity log — a record that an investment or debt was added, removed or
  * updated, kept so the change history can be reviewed and a deletion undone. README.md →
  * "Net Worth Tracking" lists "Activity log with revert support for deleted entries" but the Data
@@ -289,6 +323,13 @@
  * @property {Milestone[]} milestones
  * @property {Budget} budget
  * @property {ActivityLogEntry[]} activity_log Newest first.
+ * @property {import('./lifetime-gifts.js').Gift[]} gifts Lifetime gifts — the 7-year countdown, the
+ *   annual exemption and taper relief are `lifetime-gifts.js`'s own; this document only gives them
+ *   a home. Normalised here structurally only (id, date-or-null, numbers); `lifetime-gifts.js`'s own
+ *   `normaliseGift` is the authoritative normalisation and runs before every use.
+ * @property {Beneficiary[]} beneficiaries Who-gets-what wishes — see {@link Beneficiary}.
+ * @property {IhtSettings} iht_settings Assumptions "if I died today" needs that tracked net worth
+ *   data cannot supply — see {@link IhtSettings}.
  */
 
 /**

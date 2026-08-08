@@ -40,12 +40,14 @@ import {
 /** @typedef {import('./types.js').ActivityLogEntry} ActivityLogEntry */
 /** @typedef {import('./types.js').AppData} AppData */
 /** @typedef {import('./types.js').Asset} Asset */
+/** @typedef {import('./types.js').Beneficiary} Beneficiary */
 /** @typedef {import('./types.js').Budget} Budget */
 /** @typedef {import('./types.js').BudgetBill} BudgetBill */
 /** @typedef {import('./types.js').BudgetCategory} BudgetCategory */
 /** @typedef {import('./types.js').BudgetLineItem} BudgetLineItem */
 /** @typedef {import('./types.js').Debt} Debt */
 /** @typedef {import('./types.js').Dividend} Dividend */
+/** @typedef {import('./types.js').IhtSettings} IhtSettings */
 /** @typedef {import('./types.js').Investment} Investment */
 /** @typedef {import('./types.js').Milestone} Milestone */
 /** @typedef {import('./types.js').MonthlyEntry} MonthlyEntry */
@@ -446,6 +448,39 @@ export function createBudget(overrides = {}) {
 }
 
 /**
+ * @param {Partial<Beneficiary>} [overrides]
+ * @returns {Beneficiary}
+ */
+export function createBeneficiary(overrides = {}) {
+	return { id: createId('ben'), name: '', relationship: '', share_pct: 0, notes: '', ...overrides };
+}
+
+/**
+ * Defaults matching `estate.js`'s own `DEFAULT_ESTATE`/`budget-policy.js`'s `DEFAULT_BUDGET_POLICY`:
+ * `direct_descendants` defaults `true` because the residence nil-rate band's precondition is what
+ * actually gates it — a document with no primary residence recorded gets no residence band
+ * regardless — and `spouse_exempt` defaults `false` so a brand new document reports the estate's
+ * full, untapered bill rather than assuming a spouse it has no evidence for.
+ *
+ * @type {Readonly<IhtSettings>}
+ */
+const DEFAULT_IHT_SETTINGS = Object.freeze({
+	spouse_exempt: false,
+	direct_descendants: true,
+	transferred_nil_rate_band_pct: 0,
+	transferred_residence_nil_rate_band_pct: 0,
+	funeral_expenses: 0
+});
+
+/**
+ * @param {Partial<IhtSettings>} [overrides]
+ * @returns {IhtSettings}
+ */
+export function createIhtSettings(overrides = {}) {
+	return { ...DEFAULT_IHT_SETTINGS, ...overrides };
+}
+
+/**
  * Format a standard milestone target the way the chart pills label them: £10k … £1M.
  *
  * @param {number} target
@@ -507,6 +542,9 @@ export function createAppData(overrides = {}) {
 		milestones: createStandardMilestones(),
 		budget: createBudget(),
 		activity_log: [],
+		gifts: [],
+		beneficiaries: [],
+		iht_settings: createIhtSettings(),
 		...overrides
 	};
 }
@@ -803,6 +841,66 @@ function normaliseBudget(raw) {
 }
 
 /**
+ * A stored lifetime gift, normalised structurally only: an id, an ISO date or `null`, numbers in
+ * the right shape. `lifetime-gifts.js`'s own `normaliseGift` is the authoritative normalisation —
+ * it validates `exemption` against {@link import('./lifetime-gifts.js').GIFT_EXEMPTIONS} and runs
+ * before every use — so this module deliberately does not import it or duplicate that check, per
+ * `$lib`'s rule that `model.js` stays free of the feature modules built on top of it.
+ *
+ * @param {unknown} raw
+ * @returns {import('./lifetime-gifts.js').Gift}
+ */
+function normaliseStoredGift(raw) {
+	const source = asRecord(raw);
+	return {
+		id: asId(source.id, 'gift'),
+		date: asIsoDate(source.date),
+		amount: asNumber(source.amount, 0),
+		recipient: asString(source.recipient),
+		description: asString(source.description),
+		exemption: /** @type {import('./lifetime-gifts.js').GiftExemption} */ (
+			asString(source.exemption, 'none')
+		)
+	};
+}
+
+/**
+ * @param {unknown} raw
+ * @returns {Beneficiary}
+ */
+function normaliseBeneficiary(raw) {
+	const source = asRecord(raw);
+	return {
+		id: asId(source.id, 'ben'),
+		name: asString(source.name),
+		relationship: asString(source.relationship),
+		share_pct: asNumber(source.share_pct, 0),
+		notes: asString(source.notes)
+	};
+}
+
+/**
+ * @param {unknown} raw
+ * @returns {IhtSettings}
+ */
+function normaliseIhtSettings(raw) {
+	const source = asRecord(raw);
+	return {
+		spouse_exempt: asBoolean(source.spouse_exempt, DEFAULT_IHT_SETTINGS.spouse_exempt),
+		direct_descendants: asBoolean(
+			source.direct_descendants,
+			DEFAULT_IHT_SETTINGS.direct_descendants
+		),
+		transferred_nil_rate_band_pct: asNumber(source.transferred_nil_rate_band_pct, 0),
+		transferred_residence_nil_rate_band_pct: asNumber(
+			source.transferred_residence_nil_rate_band_pct,
+			0
+		),
+		funeral_expenses: asNumber(source.funeral_expenses, 0)
+	};
+}
+
+/**
  * Coerce arbitrary parsed JSON into a complete {@link AppData}. Missing collections become empty
  * arrays, missing fields take their defaults, unrecognised enum values fall back, and monthly
  * entries come back sorted oldest first. Unknown top-level keys are dropped, so a stray field
@@ -835,7 +933,10 @@ export function normaliseAppData(raw) {
 		dividends: asArray(source.dividends).map(normaliseDividend),
 		milestones: asArray(source.milestones).map(normaliseMilestone),
 		budget: normaliseBudget(source.budget),
-		activity_log: asArray(source.activity_log).map(normaliseActivityLogEntry)
+		activity_log: asArray(source.activity_log).map(normaliseActivityLogEntry),
+		gifts: asArray(source.gifts).map(normaliseStoredGift),
+		beneficiaries: asArray(source.beneficiaries).map(normaliseBeneficiary),
+		iht_settings: normaliseIhtSettings(source.iht_settings)
 	};
 }
 
@@ -1084,6 +1185,22 @@ export function validateAppData(data) {
 
 	validateBudget(data.budget, check);
 
+	checkUniqueIds(data.gifts, 'gifts', check);
+	data.gifts.forEach((gift, index) => {
+		check(isMoney(gift.amount), `gifts[${index}].amount`, 'must be a non-negative amount');
+	});
+
+	checkUniqueIds(data.beneficiaries, 'beneficiaries', check);
+	data.beneficiaries.forEach((beneficiary, index) => {
+		check(
+			inRange(beneficiary.share_pct, 0, 100),
+			`beneficiaries[${index}].share_pct`,
+			'must be 0–100%'
+		);
+	});
+
+	validateIhtSettings(data.iht_settings, check);
+
 	checkUniqueIds(data.activity_log, 'activity_log', check);
 	data.activity_log.forEach((entry, index) => {
 		const path = `activity_log[${index}]`;
@@ -1181,6 +1298,28 @@ function validateBudget(budget, check) {
 			'refers to a budget category that does not exist'
 		);
 	});
+}
+
+/**
+ * @param {IhtSettings} settings
+ * @param {(ok: boolean, path: string, message: string) => void} check
+ */
+function validateIhtSettings(settings, check) {
+	check(
+		inRange(settings.transferred_nil_rate_band_pct, 0, 100),
+		'iht_settings.transferred_nil_rate_band_pct',
+		'must be 0–100%'
+	);
+	check(
+		inRange(settings.transferred_residence_nil_rate_band_pct, 0, 100),
+		'iht_settings.transferred_residence_nil_rate_band_pct',
+		'must be 0–100%'
+	);
+	check(
+		isMoney(settings.funeral_expenses),
+		'iht_settings.funeral_expenses',
+		'must be a non-negative amount'
+	);
 }
 
 /**
