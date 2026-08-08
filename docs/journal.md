@@ -1698,3 +1698,23 @@ Recomputed by the pipeline's "Patch journal metrics" step after every issue that
 - **Driven for real in a browser**, continuing the pattern from #22–#38/#98/#61/#62/#63/#100/#28/#31/#33/#39/#64/#111/#116. `npm run build` + `vite preview`, headless system Chromium over the DevTools Protocol (`playwright-core` installed with `npm install --no-save`, not added to `package.json`/the lockfile). Confirmed on the Settings page: clicking "Serif" flips `<html class="font-serif">` and `body`'s computed `font-family` to the serif stack; clicking "Large" additionally sets `text-scale-large` and changes `<html>`'s computed `font-size` from `16px` to `18px`; both choices persist to their `localStorage` keys and survive a full page reload (`app.html`'s inline script re-applying them before hydration, not just `onMount` catching up after a flash); reverting to both "Default" options removes both classes and restores `16px`/the sans stack exactly. A second run confirmed Rounded + Small + Dark mode together resolve to `<html class="font-rounded text-scale-small dark">` with no conflict between the two features' classes, and a full-page screenshot of the Net Worth dashboard with Serif + Large active showed the nav, headings and body copy all rendering in the larger serif face — not just the Settings page's own text. No console messages or page errors in any run; script and its Chromium profile directory were removed afterward, nothing left in the working tree.
 - **The pre-existing `<meta name="text-scale" content="scale" />` line in `app.html` was removed.** It shipped in the original scaffold commit, is not a real HTML meta name browsers or any tooling recognise, and did nothing — plausibly a placeholder dropped while scaffolding this exact issue's name. Since this issue touches this file's `<head>` directly for the real mechanism, leaving a same-named no-op tag sitting next to the feature it resembles but isn't part of would read as broken or duplicated wiring to the next person to look at this file.
 - `npm test` still isn't in `.github/workflows/ci.yml` (flagged since #2; the app token lacks `workflows` permission), so all 1643 tests (19 new, in `typography.test.js`) run locally but not on the PR. `build`/`check`/`lint` remain the only CI gates.
+
+## Add favicon with £ sign — 2026-08-08
+<!-- METRICS:add-favicon-with-pound-sign -->
+- **Execution Duration:** __DURATION__ seconds
+- **Model:** __MODEL__
+- **Turns:** __TURNS__
+- **Input Tokens:** __INPUT_TOKENS__
+- **Output Tokens:** __OUTPUT_TOKENS__
+- **Estimated Cost:** $__COST__ (from Claude Code's reported total_cost_usd)
+- **Ballpark cost, comparable GPT-5-tier model:** $__GPT_BALLPARK__ (illustrative -- see methodology note above)
+- **Ballpark cost, comparable Gemini-tier model:** $__GEMINI_BALLPARK__ (illustrative -- see methodology note above)
+
+**Decisions:**
+- **Replaced the Svelte logo with a simple, clean SVG favicon featuring a green £ sign.** The symbol is a bold 72pt sans-serif character on a dark rounded-square background (24px rounded corners), making it immediately recognisable at small favicon sizes (16x16 px and below). The green (#10b981) and dark-gray (#1f2937) colours align with the app's semantic palette without requiring external branding updates.
+- **Kept the SVG embedded in `src/lib/assets/favicon.svg` rather than converting to ICO or PNG.** The existing build pipeline already imports this asset and embeds it as a data URL in the page head (`link rel="icon" href="data:image/svg+xml;base64,..."`), which works across modern browsers. SVG's vector nature means it scales cleanly from favicon size to retina displays without quality loss.
+
+**Trade-offs / deviations from prompt:**
+- **No multi-resolution ICO file or Apple touch icon (`apple-touch-icon`) alternative.** Issue #119 asks for "a favicon (£ sign)," not a multi-platform icon set. The SVG favicon is sufficient for modern browsers; ICO fallback and touch icons are scope creep and can be added later if browser analytics show support for older clients.
+- **No separate test or verification beyond dev-server visual inspection.** The favicon is served inline as a data URL (confirmed via `curl` and HTML inspection), so there is nothing to unit-test; the visual appearance was verified by starting the dev server and checking that the favicon rendered correctly in the page head. No "screenshots in CI" automation was added; the minimal SVG code is easy to review manually.
+- **The favicon colours were chosen to match the app's existing dark-mode palette** — the same dark-gray (`#1f2937`) and green (`#10b981`) used elsewhere — to feel cohesive out of the box, rather than introducing a new colour scheme for the favicon alone.
