@@ -161,7 +161,10 @@ export function monthOnMonthChange(points) {
 	const previous = points[points.length - 2];
 
 	const absolute = roundMoney(latest.net_worth - previous.net_worth);
-	const percentage = previous.net_worth === 0 ? NaN : (latest.net_worth - previous.net_worth) / previous.net_worth * 100;
+	const percentage =
+		previous.net_worth === 0
+			? NaN
+			: ((latest.net_worth - previous.net_worth) / previous.net_worth) * 100;
 
 	return { absolute, percentage };
 }
