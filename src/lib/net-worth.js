@@ -30,6 +30,18 @@
  *    which anywhere west of Greenwich is the *previous* month once formatted back in UTC — a
  *    January snapshot labelled December. {@link monthStartDate} builds the instant with `Date.UTC`,
  *    and anything formatting one back to a label must ask for `timeZone: 'UTC'` to match.
+ * 5. **A lens scales holdings by ownership share, before anything else runs.** {@link netWorthPoint}
+ *    and {@link netWorthSeries} take an optional `{ lens }` (README.md → "Household / Partner
+ *    Planning"): `'household'` (the default) is every current caller's number, unchanged, byte for
+ *    byte. `'you'`/`'partner'` scale each holding's value by `ownership_pct / 100` or
+ *    `(100 - ownership_pct) / 100` *before* the `exclude_from_net_worth` filtering in convention 2
+ *    runs, so a mortgage-style exclusion and a lens compose instead of fighting — an excluded
+ *    holding stays excluded under every lens, and the two lenses always sum back to the household
+ *    total. Debts carry no ownership field, so every lens nets off the same debt total; a `you`
+ *    or `partner` net worth therefore understates a genuinely joint mortgage, since none of it is
+ *    assigned away from either lens. The forecast band (`forecastBandSeries`, below) has no lens —
+ *    it is always the household projection — which is the constraint issue #172's chart toggle has
+ *    to design around.
  *
  * Everything here is pure: entries go in, new arrays come out, nothing is mutated.
  */
@@ -72,6 +84,67 @@ export function monthStartDate(value) {
 }
 
 /* -------------------------------------------------------------------------- */
+/* The lens                                                                    */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Every lens {@link netWorthPoint}/{@link netWorthSeries} can present a month through
+ * (convention 5): the household total, or one person's share of it by `ownership_pct`.
+ *
+ * @typedef {'household' | 'you' | 'partner'} NetWorthLens
+ */
+
+/** {@link NetWorthLens} values, in the order a toggle should offer them. */
+export const NET_WORTH_LENSES = Object.freeze(
+	/** @type {const} */ (['household', 'you', 'partner'])
+);
+
+/** The lens every existing caller gets when it passes no `{ lens }` option at all. */
+export const DEFAULT_NET_WORTH_LENS = /** @type {NetWorthLens} */ ('household');
+
+/**
+ * The label a lens toggle shows for one of its options.
+ *
+ * `partner` falls back to the literal word "Partner" when no name has been recorded
+ * (`Partner.name` is `''` by default, {@link import('./model.js').createPartner}) — the same
+ * fallback `Partner.name`'s own doc comment in `model.js` names as this lens's job.
+ *
+ * @param {NetWorthLens} lens
+ * @param {string} [partnerName] `AppData.partner?.name`, if there is a partner.
+ * @returns {string}
+ */
+export function netWorthLensLabel(lens, partnerName) {
+	if (lens === 'you') return 'You';
+	if (lens === 'partner') return partnerName && partnerName.trim() !== '' ? partnerName : 'Partner';
+	return 'Household';
+}
+
+/**
+ * Scales each holding's counted value by its ownership share under `lens`, before
+ * {@link import('./debt.js').sumInvestmentValues} filters `exclude_from_net_worth` (convention 5).
+ * `household` returns `investments` unchanged — the identity a caller passing no lens relies on to
+ * reproduce today's totals exactly.
+ *
+ * `ownership_pct` is clamped to 0–100 here rather than trusted as already valid: a document that
+ * has not been through {@link import('./model.js').validateAppData} (a hand-edited Gist, an older
+ * build) could carry a value outside that range, and an unclamped `you` share above 100% or below
+ * 0% would produce a `you`/`partner` split that no longer sums back to the household total.
+ *
+ * @param {readonly import('./types.js').Investment[]} investments
+ * @param {NetWorthLens} lens
+ * @returns {readonly import('./types.js').Investment[]}
+ */
+function scaleInvestmentsForLens(investments, lens) {
+	if (lens === 'household') return investments;
+
+	return investments.map((investment) => {
+		const ownedPct = Math.min(100, Math.max(0, investment.ownership_pct));
+		const sharePct = lens === 'you' ? ownedPct : 100 - ownedPct;
+		return { ...investment, value: investment.value * (sharePct / 100) };
+	});
+}
+
+/* -------------------------------------------------------------------------- */
 /* The series                                                                  */
 /* -------------------------------------------------------------------------- */
 
@@ -95,10 +168,14 @@ export function monthStartDate(value) {
  * Turn one recorded month into a plottable point.
  *
  * @param {import('./types.js').MonthlyEntry} entry
+ * @param {{ lens?: NetWorthLens }} [options] `lens` defaults to {@link DEFAULT_NET_WORTH_LENS}
+ *   (`'household'`), which reproduces every pre-existing caller's numbers exactly.
  * @returns {NetWorthPoint}
  */
-export function netWorthPoint(entry) {
-	const investments = roundMoney(sumInvestmentValues(entry.investments));
+export function netWorthPoint(entry, { lens = DEFAULT_NET_WORTH_LENS } = {}) {
+	const investments = roundMoney(
+		sumInvestmentValues(scaleInvestmentsForLens(entry.investments, lens))
+	);
 	const debts = roundMoney(sumDebtBalances(entry.debts));
 
 	return {
@@ -122,10 +199,11 @@ export function netWorthPoint(entry) {
  * showing it.
  *
  * @param {readonly import('./types.js').MonthlyEntry[]} entries Any order.
+ * @param {{ lens?: NetWorthLens }} [options] As {@link netWorthPoint}.
  * @returns {NetWorthPoint[]} Oldest first.
  */
-export function netWorthSeries(entries) {
-	return [...entries].sort(compareMonthlyEntries).map(netWorthPoint);
+export function netWorthSeries(entries, { lens = DEFAULT_NET_WORTH_LENS } = {}) {
+	return [...entries].sort(compareMonthlyEntries).map((entry) => netWorthPoint(entry, { lens }));
 }
 
 /**
