@@ -119,3 +119,5 @@ WealthR is a SvelteKit PWA with Supabase backend (EU-hosted, row-level security)
 ## Data Migration
 
 WealthR offers CSV export (Pro feature, or free via GDPR Article 20 data portability request via their Privacy page). Import into uk-wealth-tracker will be a discrete Phase 2 feature — the core data schema will be designed to accommodate it without breaking changes.
+
+**Status (#130):** this app's own CSV export format (`csv-export.js`, #129) is round-trip importable — `src/lib/csv-import.js` parses, validates and merges a Holdings or Debts CSV this app itself produced back into `AppData`. Net Worth History stays read-only (it is a derived total with no way back to the individual records that produced it). WealthR's own export format is still out of scope: no real WealthR CSV sample has been available to build a column mapping against, and guessing at an unverified layout risks silently mis-importing someone's real financial data. Unblocking it needs an actual WealthR export file to work from.
