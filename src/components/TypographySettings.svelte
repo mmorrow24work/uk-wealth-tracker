@@ -26,7 +26,11 @@
 	const FONT_FAMILY_OPTIONS = [
 		{ value: 'sans', label: 'Default' },
 		{ value: 'serif', label: 'Serif' },
-		{ value: 'rounded', label: 'Rounded' }
+		{ value: 'rounded', label: 'Rounded' },
+		{ value: 'mono', label: 'Monospace' },
+		{ value: 'accessible', label: 'Accessible' },
+		{ value: 'handwritten', label: 'Handwritten' },
+		{ value: 'spooky', label: 'Spooky' }
 	];
 
 	/** @type {{ value: import('$lib/typography.js').TextSize, label: string }[]} */

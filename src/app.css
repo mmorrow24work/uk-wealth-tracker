@@ -14,6 +14,27 @@
    LayerChart's tokens by hand below, so it has to import it by hand too. */
 @import 'layerchart/core.css';
 
+/* Self-hosted web fonts for three of the font-picker options added in issue #125 -- Courier New
+   and the handwritten `cursive`/spooky `cursive` system fallback stacks need no font file, but
+   "genuinely more legible" (accessible) and the two "fun" faces do. `@fontsource` packages are
+   pre-built `@font-face` CSS + woff2/woff files with no build step of their own, so `npm install`
+   is the whole integration; Vite's Tailwind plugin resolves and bundles these bare-specifier CSS
+   imports (and the relative font-file `url()`s inside them) exactly the way it already does for
+   `layerchart/core.css` above. Only the `latin` subset, and only the weights `body`/headings in
+   this app actually use (400 normal + 700 bold where the family ships one, 400 only where it
+   doesn't) — not `index.css`'s full latin+latin-ext+cyrillic+italic set — to keep this small
+   ("without adding real weight/complexity" per the issue): ~20-50KB per family, fetched only once
+   a user actually picks that font. Self-hosted rather than a Google Fonts `<link>` deliberately:
+   this app has no backend and no analytics by design (DESIGN.md), and a CDN `<link>` would leak
+   every visitor's IP/user-agent to Google on first paint regardless of whether they ever open the
+   font picker -- self-hosting keeps that same "no third party sees you used this app" property
+   file assets already have. */
+@import '@fontsource/atkinson-hyperlegible/latin-400.css';
+@import '@fontsource/atkinson-hyperlegible/latin-700.css';
+@import '@fontsource/caveat/latin-400.css';
+@import '@fontsource/caveat/latin-700.css';
+@import '@fontsource/creepster/latin-400.css';
+
 /* Tailwind v4's default `dark:` variant follows `prefers-color-scheme` (a media query), which
    can't be toggled by anything on the page — it would ignore an explicit choice made through
    `$lib/theme.js`'s toggle (issue #116) whenever it disagreed with the OS setting. Redeclaring the
@@ -70,6 +91,18 @@
 		sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
 	--font-serif-stack: ui-serif, Georgia, Cambria, 'Times New Roman', Times, serif;
 	--font-rounded-stack: ui-rounded, 'SF Pro Rounded', Nunito, 'Segoe UI', Roboto, sans-serif;
+
+	/* Four more options added by issue #125. `--font-mono-stack` is the system monospace stack
+	   the issue names directly ("Courier New") -- no font file needed, every OS ships one.
+	   `--font-accessible-stack`/`--font-handwritten-stack`/`--font-spooky-stack` lead with the
+	   self-hosted webfont imported above and fall back to a same-genre system stack if it somehow
+	   fails to load, the same "system stack, webfont improves on it" shape `--font-rounded-stack`
+	   already uses with `ui-rounded`/`SF Pro Rounded`. */
+	--font-mono-stack: 'Courier New', Courier, monospace;
+	--font-accessible-stack: 'Atkinson Hyperlegible', Arial, Helvetica, sans-serif;
+	--font-handwritten-stack: 'Caveat', 'Segoe Print', 'Bradley Hand', cursive;
+	--font-spooky-stack: 'Creepster', 'Chiller', cursive;
+
 	--app-font-family: var(--font-sans-stack);
 	--text-scale: 1;
 }
@@ -80,6 +113,22 @@
 
 .font-rounded {
 	--app-font-family: var(--font-rounded-stack);
+}
+
+.font-mono {
+	--app-font-family: var(--font-mono-stack);
+}
+
+.font-accessible {
+	--app-font-family: var(--font-accessible-stack);
+}
+
+.font-handwritten {
+	--app-font-family: var(--font-handwritten-stack);
+}
+
+.font-spooky {
+	--app-font-family: var(--font-spooky-stack);
 }
 
 .text-scale-small {
