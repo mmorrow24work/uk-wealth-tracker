@@ -122,6 +122,10 @@ export * from './data-transfer.js';
 // only re-importable format). See the Settings tab's DataManager component.
 export * from './xlsx-export.js';
 
+// CSV export — net worth history/holdings/debts as three separate .csv files, reusing
+// xlsx-export.js's row-shaping. Read-only, like XLSX. See the Settings tab's DataManager component.
+export * from './csv-export.js';
+
 // Global reactive app state — the shared store every feature tab should read/write against
 // instead of local component state. Hydrates from and syncs (debounced) to persistence.js.
 export * from './store.js';

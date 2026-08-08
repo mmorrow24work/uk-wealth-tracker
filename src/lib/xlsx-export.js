@@ -29,6 +29,12 @@
  *    penny, rather than re-deriving or collapsing them — and restates `AppData.pensions`/
  *    `properties`/`assets` as one row per record, flat, with no month column, for the last three
  *    (#113), reusing {@link enumLabel} and {@link percentFraction} throughout.
+ *
+ * The net worth history/holdings/debts column specs ({@link NET_WORTH_HISTORY_COLUMNS},
+ * {@link HOLDINGS_COLUMNS}, {@link DEBTS_COLUMNS}) and the two row-expansion helpers
+ * ({@link expandHoldingRows}, {@link expandDebtRows}) are exported so `./csv-export.js` (#129) can
+ * restate the exact same rows as CSV text instead of workbook cells — the row-shaping (which
+ * fields, in which order, enum codes resolved to labels) stays defined once, here.
  */
 
 import * as XLSX from 'xlsx';
@@ -194,9 +200,13 @@ export const NET_WORTH_HISTORY_SHEET_NAME = 'Net Worth History';
  * restated as one row per recorded month, oldest first — the same points, same rounding, same
  * order the Net Worth chart plots, so the workbook agrees with the chart to the penny.
  *
+ * Exported (not just module-local) so `csv-export.js` (#129) can restate the same rows as CSV
+ * without re-deriving which fields make up this dataset or how each is shaped — only the output
+ * format (a sheet cell vs a CSV cell) differs between the two modules.
+ *
  * @type {XlsxColumn[]}
  */
-const NET_WORTH_HISTORY_COLUMNS = [
+export const NET_WORTH_HISTORY_COLUMNS = [
 	{ header: 'Month', value: (point) => point.date, numFmt: 'mmm yyyy', width: 12 },
 	{ header: 'Investments', value: (point) => point.investments, format: 'currency' },
 	{ header: 'Debts', value: (point) => point.debts, format: 'currency' },
@@ -264,10 +274,13 @@ export const HOLDINGS_SHEET_NAME = 'Holdings';
  * same ordering `netWorthSeries` uses, before flattening — a holding present across several months
  * appears once per month, at that month's value.
  *
+ * Exported for the same reason {@link NET_WORTH_HISTORY_COLUMNS} is — `csv-export.js` (#129) reuses
+ * this expansion rather than re-deriving the one-row-per-holding-per-month shape itself.
+ *
  * @param {readonly import('./types.js').MonthlyEntry[]} entries Any order.
  * @returns {HoldingRow[]}
  */
-function expandHoldingRows(entries) {
+export function expandHoldingRows(entries) {
 	return [...entries]
 		.sort(compareMonthlyEntries)
 		.flatMap((entry) =>
@@ -275,8 +288,12 @@ function expandHoldingRows(entries) {
 		);
 }
 
-/** @type {XlsxColumn[]} */
-const HOLDINGS_COLUMNS = [
+/**
+ * Exported for the same reason {@link NET_WORTH_HISTORY_COLUMNS} is.
+ *
+ * @type {XlsxColumn[]}
+ */
+export const HOLDINGS_COLUMNS = [
 	{ header: 'Month', value: (row) => row.month, numFmt: 'mmm yyyy', width: 12 },
 	{ header: 'Name', value: (row) => row.investment.name, width: 24 },
 	{ header: 'Type', value: (row) => enumLabel(INVESTMENT_TYPE_LABELS, row.investment.type) },
@@ -333,17 +350,23 @@ export const DEBTS_SHEET_NAME = 'Debts';
  * Same per-month expansion as {@link expandHoldingRows}, over each entry's `debts` instead of its
  * `investments`.
  *
+ * Exported for the same reason {@link expandHoldingRows} is.
+ *
  * @param {readonly import('./types.js').MonthlyEntry[]} entries Any order.
  * @returns {DebtRow[]}
  */
-function expandDebtRows(entries) {
+export function expandDebtRows(entries) {
 	return [...entries]
 		.sort(compareMonthlyEntries)
 		.flatMap((entry) => entry.debts.map((debt) => ({ month: monthStartDate(entry), debt })));
 }
 
-/** @type {XlsxColumn[]} */
-const DEBTS_COLUMNS = [
+/**
+ * Exported for the same reason {@link NET_WORTH_HISTORY_COLUMNS} is.
+ *
+ * @type {XlsxColumn[]}
+ */
+export const DEBTS_COLUMNS = [
 	{ header: 'Month', value: (row) => row.month, numFmt: 'mmm yyyy', width: 12 },
 	{ header: 'Name', value: (row) => row.debt.name, width: 24 },
 	{ header: 'Type', value: (row) => enumLabel(DEBT_TYPE_LABELS, row.debt.type) },

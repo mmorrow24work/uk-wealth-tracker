@@ -26,10 +26,21 @@
 	 * XLSX export are secondary, read-only data paths"), so it gets its own card with its own copy
 	 * making that explicit rather than living as a second button beside "Export data as JSON" where
 	 * it would look like an equivalent choice.
+	 *
+	 * A fifth, also read-only, sits beside XLSX (issue #129): three separate `.csv` downloads —
+	 * net worth history, holdings, debts — built with `$lib/csv-export.js`, one button each per the
+	 * issue's "several separate download buttons rather than forcing everything into one flat table"
+	 * instruction, sharing `downloadCsv`'s `Blob`-download plumbing.
 	 */
 	import { get } from 'svelte/store';
 
 	import { resolve } from '$app/paths';
+	import {
+		CSV_MIME_TYPE,
+		exportDebtsCsv,
+		exportHoldingsCsv,
+		exportNetWorthHistoryCsv
+	} from '$lib/csv-export.js';
 	import { exportAppData, parseImportDocument } from '$lib/data-transfer.js';
 	import {
 		availablePersistenceModes,
@@ -113,6 +124,24 @@
 			URL.revokeObjectURL(url);
 		} catch (cause) {
 			xlsxExportError = cause instanceof Error ? cause.message : String(cause);
+		}
+	}
+
+	let csvExportError = $state('');
+
+	/** @param {() => { csv: string, filename: string }} buildExport */
+	function downloadCsv(buildExport) {
+		csvExportError = '';
+		try {
+			const { csv, filename } = buildExport();
+			const url = URL.createObjectURL(new Blob([csv], { type: CSV_MIME_TYPE }));
+			const link = document.createElement('a');
+			link.href = url;
+			link.download = filename;
+			link.click();
+			URL.revokeObjectURL(url);
+		} catch (cause) {
+			csvExportError = cause instanceof Error ? cause.message : String(cause);
 		}
 	}
 
@@ -252,6 +281,43 @@
 		{#if xlsxExportError}<p class="text-sm text-red-600 mt-2" role="alert">
 				{xlsxExportError}
 			</p>{/if}
+	</Card>
+
+	<Card className="p-4">
+		<h2 class="text-lg font-semibold mb-1">Export data as CSV</h2>
+		<p class="text-sm text-muted-foreground mb-3">
+			Downloads three separate <code>.csv</code> files — net worth history, holdings and debts by month
+			— the same figures as the Excel export's Net Worth History/Holdings/Debts sheets, for a GDPR Article
+			20 data-portability request or a quick import into another spreadsheet tool. This is read-only,
+			like the Excel export above: a CSV file can't be brought back in via Import.
+		</p>
+		<div class="flex flex-wrap gap-2">
+			<Button
+				type="button"
+				size="sm"
+				variant="outline"
+				onclick={() => downloadCsv(() => exportNetWorthHistoryCsv(get(appData)))}
+			>
+				Net Worth History (.csv)
+			</Button>
+			<Button
+				type="button"
+				size="sm"
+				variant="outline"
+				onclick={() => downloadCsv(() => exportHoldingsCsv(get(appData)))}
+			>
+				Holdings (.csv)
+			</Button>
+			<Button
+				type="button"
+				size="sm"
+				variant="outline"
+				onclick={() => downloadCsv(() => exportDebtsCsv(get(appData)))}
+			>
+				Debts (.csv)
+			</Button>
+		</div>
+		{#if csvExportError}<p class="text-sm text-red-600 mt-2" role="alert">{csvExportError}</p>{/if}
 	</Card>
 
 	<Card className="p-4">
