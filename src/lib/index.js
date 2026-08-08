@@ -53,6 +53,11 @@ export * from './one-off-costs.js';
 // still a placeholder until #140 builds the view over this.
 export * from './estate.js';
 
+// Lifetime gifts: the 7-year countdown, the £3,000 annual exemption and its siblings, and taper
+// relief on the tax where a gift has not been survived long enough. Sits on top of estate.js —
+// gifts take the nil-rate band before the estate does — so it must be re-exported after it.
+export * from './lifetime-gifts.js';
+
 // Budget 2026–2031 policy changes overlay — unused pensions entering the estate for IHT from
 // 6 April 2027, and the frozen nil-rate bands. An estate overlay, not a forecast one (engine only);
 // the bands and the bill themselves are estate.js's, run against each year's own figures.
