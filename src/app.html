@@ -28,8 +28,15 @@
 			(function () {
 				try {
 					var family = localStorage.getItem('uk-wealth-tracker:font-family');
-					if (family === 'serif') document.documentElement.classList.add('font-serif');
-					else if (family === 'rounded') document.documentElement.classList.add('font-rounded');
+					var familyClasses = {
+						serif: 'font-serif',
+						rounded: 'font-rounded',
+						mono: 'font-mono',
+						accessible: 'font-accessible',
+						handwritten: 'font-handwritten',
+						spooky: 'font-spooky'
+					};
+					if (familyClasses[family]) document.documentElement.classList.add(familyClasses[family]);
 
 					var size = localStorage.getItem('uk-wealth-tracker:text-size');
 					if (size === 'small') document.documentElement.classList.add('text-scale-small');

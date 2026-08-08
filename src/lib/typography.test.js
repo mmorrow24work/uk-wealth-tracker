@@ -89,6 +89,17 @@ describe('getStoredFontFamily', () => {
 		const { getStoredFontFamily } = await import('./typography.js');
 		expect(getStoredFontFamily()).toBeUndefined();
 	});
+
+	it.each(['mono', 'accessible', 'handwritten', 'spooky'])(
+		'reads back a previously stored %s choice (issue #125)',
+		async (value) => {
+			const storage = createMemoryStorage();
+			storage.setItem(FONT_FAMILY_KEY, value);
+			vi.stubGlobal('localStorage', storage);
+			const { getStoredFontFamily } = await import('./typography.js');
+			expect(getStoredFontFamily()).toBe(value);
+		}
+	);
 });
 
 describe('getStoredTextSize', () => {
@@ -212,6 +223,54 @@ describe('setFontFamily', () => {
 		vi.stubGlobal('document', createFakeDocument());
 		const { setFontFamily } = await import('./typography.js');
 		expect(() => setFontFamily('serif')).not.toThrow();
+	});
+
+	it.each([
+		['mono', 'font-mono'],
+		['accessible', 'font-accessible'],
+		['handwritten', 'font-handwritten'],
+		['spooky', 'font-spooky']
+	])('applies, publishes and persists the %s choice (issue #125)', async (value, className) => {
+		const storage = createMemoryStorage();
+		vi.stubGlobal('localStorage', storage);
+		const fakeDocument = createFakeDocument();
+		vi.stubGlobal('document', fakeDocument);
+
+		const { setFontFamily, fontFamily } = await import('./typography.js');
+		const result = setFontFamily(/** @type {import('./typography.js').FontFamily} */ (value));
+
+		expect(result).toBe(value);
+		expect(fakeDocument.classes.has(className)).toBe(true);
+		expect(get(fontFamily)).toBe(value);
+		expect(storage.getItem(FONT_FAMILY_KEY)).toBe(value);
+	});
+
+	it('only ever has one font-family class active at a time, switching between all seven options', async () => {
+		const storage = createMemoryStorage();
+		vi.stubGlobal('localStorage', storage);
+		const fakeDocument = createFakeDocument();
+		vi.stubGlobal('document', fakeDocument);
+
+		const { setFontFamily } = await import('./typography.js');
+		const allClasses = [
+			'font-serif',
+			'font-rounded',
+			'font-mono',
+			'font-accessible',
+			'font-handwritten',
+			'font-spooky'
+		];
+
+		/** @type {import('./typography.js').FontFamily[]} */
+		const values = ['serif', 'rounded', 'mono', 'accessible', 'handwritten', 'spooky'];
+		for (const value of values) {
+			setFontFamily(value);
+			const active = allClasses.filter((className) => fakeDocument.classes.has(className));
+			expect(active).toEqual([`font-${value}`]);
+		}
+
+		setFontFamily('sans');
+		expect(allClasses.some((className) => fakeDocument.classes.has(className))).toBe(false);
 	});
 });
 

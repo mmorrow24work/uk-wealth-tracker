@@ -28,7 +28,7 @@ export const FONT_FAMILY_STORAGE_KEY = 'uk-wealth-tracker:font-family';
 /** `localStorage` key holding the explicit text size choice, once one has been made. */
 export const TEXT_SIZE_STORAGE_KEY = 'uk-wealth-tracker:text-size';
 
-/** @typedef {'sans' | 'serif' | 'rounded'} FontFamily */
+/** @typedef {'sans' | 'serif' | 'rounded' | 'mono' | 'accessible' | 'handwritten' | 'spooky'} FontFamily */
 /** @typedef {'small' | 'medium' | 'large'} TextSize */
 
 /** The app's existing appearance -- what everyone saw before this preference existed. */
@@ -39,7 +39,11 @@ export const DEFAULT_TEXT_SIZE = /** @type {TextSize} */ ('medium');
 const FONT_FAMILY_CLASSES = /** @type {Record<FontFamily, string | undefined>} */ ({
 	sans: undefined,
 	serif: 'font-serif',
-	rounded: 'font-rounded'
+	rounded: 'font-rounded',
+	mono: 'font-mono',
+	accessible: 'font-accessible',
+	handwritten: 'font-handwritten',
+	spooky: 'font-spooky'
 });
 
 /** `<html>` class for each non-default text size; `'medium'` needs none -- it's the CSS default. */
@@ -73,7 +77,15 @@ export function getStoredFontFamily() {
 	if (!hasLocalStorage()) return undefined;
 	try {
 		const value = localStorage.getItem(FONT_FAMILY_STORAGE_KEY);
-		return value === 'sans' || value === 'serif' || value === 'rounded' ? value : undefined;
+		return value === 'sans' ||
+			value === 'serif' ||
+			value === 'rounded' ||
+			value === 'mono' ||
+			value === 'accessible' ||
+			value === 'handwritten' ||
+			value === 'spooky'
+			? value
+			: undefined;
 	} catch {
 		return undefined;
 	}
