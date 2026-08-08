@@ -146,11 +146,14 @@ export function scenarioRateDelta(scenario, spreadPct = DEFAULT_SCENARIO_SPREAD)
 
 /**
  * What one month does differently from the rest of the projection — the seam the stress test overlay
- * (`stress-test.js`, issue #21) builds a crash and its recovery out of, so a stressed projection is
- * this module's own arithmetic with two months' worth of assumptions swapped rather than a second
- * projector that could drift from it.
+ * (`stress-test.js`, issue #21) builds a crash and its recovery out of, and the income shock overlay
+ * (`income-shock.js`, issue #133) builds a contribution drop out of, so either is this module's own
+ * arithmetic with a month's worth of assumptions swapped rather than a second projector that could
+ * drift from it.
  *
- * Exactly one of the two applies per month, `factor` winning if both are given:
+ * `growthRate`/`factor` and `contributionFactor` are independent — a month can carry either, both or
+ * neither, because a market crash and an income shock are different events that happen to share the
+ * same hook. Between the growth fields, `factor` wins if both are given:
  *
  * - `growthRate` replaces the *base* annual assumption for that month, for every holding. The
  *   scenario shift and each holding's fund fee still apply on top, so a recovery window keeps the
@@ -162,14 +165,22 @@ export function scenarioRateDelta(scenario, spreadPct = DEFAULT_SCENARIO_SPREAD)
  *   and the month's contribution added, with no rate, no compounding and no fund fee involved. That
  *   is what makes "a 35% crash" mean the pot falls exactly 35% rather than 35% plus or minus a
  *   month of ordinary growth.
+ * - `contributionFactor` scales every holding's contribution for that month instead of its growth —
+ *   `0` stops contributions outright (job loss), `0.5` halves them (reduced income). The market still
+ *   moves normally (or per `growthRate`/`factor`, if both are in force the same month) — an income
+ *   shock changes the standing order, not the market, which is the mirror image of convention 5 in
+ *   `stress-test.js`'s module doc ("a crash changes the market, not the standing order").
  *
- * Either way the month's contribution is still paid on schedule, and the change in value is still
- * booked to `growth` — a crash is negative growth, so {@link ForecastPoint}'s split keeps
- * reconciling (`compounding.js` → `reconcileCompounding`).
+ * Either way the month's contribution is still paid on schedule (scaled by `contributionFactor` when
+ * given), and the change in value is still booked to `growth` — a crash is negative growth, and a
+ * smaller contribution is simply less of it, so {@link ForecastPoint}'s split keeps reconciling
+ * (`compounding.js` → `reconcileCompounding`).
  *
  * @typedef {object} ForecastMonthAdjustment
  * @property {number} [growthRate] Annual growth (%) replacing the base assumption for this month.
  * @property {number} [factor] Multiplicative move for this month — `0.65` for a 35% fall.
+ * @property {number} [contributionFactor] Multiplier on every holding's contribution for this month
+ *   — `0` skips it entirely, `1` (the default when omitted) pays it in full.
  */
 
 /**
@@ -333,18 +344,21 @@ export function projectScenario(input = {}, options = {}) {
 	];
 
 	for (let offset = 1; offset <= horizon; offset += 1) {
-		// A month the caller wants projected differently — a crash, or a month inside a recovery
-		// window. Resolved once per month rather than per holding: the adjustment is market-wide by
-		// construction, so asking for it once is both cheaper and the honest expression of that.
+		// A month the caller wants projected differently — a crash, a month inside a recovery window,
+		// or a month an income shock has scaled the contribution for. Resolved once per month rather
+		// than per holding: the adjustment is market-wide by construction, so asking for it once is
+		// both cheaper and the honest expression of that.
 		const adjustment = options.adjustMonth?.(offset) ?? null;
 		const factor = typeof adjustment?.factor === 'number' ? adjustment.factor : null;
+		const contributionFactor =
+			typeof adjustment?.contributionFactor === 'number' ? adjustment.contributionFactor : 1;
 		const monthOptions =
 			typeof adjustment?.growthRate === 'number'
 				? { ...options, growthRate: adjustment.growthRate, holdingGrowthRates: {} }
 				: options;
 
 		holdings = holdings.map((investment) => {
-			const paid = contributionForOffset(investment, offset);
+			const paid = contributionForOffset(investment, offset) * contributionFactor;
 			const value =
 				factor === null
 					? // The fee is already folded into the resolved rate, so the primitive must not apply
@@ -352,16 +366,18 @@ export function projectScenario(input = {}, options = {}) {
 						// choice.
 						projectHoldingValue(investment, offset, {
 							growthRate: resolveHoldingGrowthRate(investment, monthOptions),
-							applyFundFees: false
+							applyFundFees: false,
+							contributionFactor
 						})
-					: // A stated move, applied to the opening value with the month's contribution added on
-						// top — same shape and same rounding as `projectHoldingValue`, minus the rate.
+					: // A stated move, applied to the opening value with the month's (possibly scaled)
+						// contribution added on top — same shape and same rounding as `projectHoldingValue`,
+						// minus the rate.
 						roundMoney(investment.value * factor + paid);
 
 			contributions += paid;
 			// Growth is what the month's value change was *not* explained by the contribution, so
 			// the two always reconcile to the value change exactly, rounding included. A crash is
-			// therefore booked as negative growth, not as a hole in the split.
+			// therefore booked as negative growth, and a skipped contribution is simply less of it.
 			growth += value - investment.value - paid;
 
 			return { ...investment, value };

@@ -595,6 +595,82 @@ describe('projectScenario with adjustMonth', () => {
 			expect(series[6].investments).toBeCloseTo(series[5].investments * 0.5, 2);
 		}
 	});
+
+	describe('contributionFactor', () => {
+		const contributing = {
+			...position,
+			investments: [holding({ monthly_contribution: 500, fund_fee: 0 })]
+		};
+
+		it('skips the month contribution entirely at a factor of 0', () => {
+			const points = projectScenario(contributing, {
+				growthRate: 5,
+				adjustMonth: (offset) => (offset === 6 ? { contributionFactor: 0 } : null)
+			});
+			const plain = projectScenario(contributing, { growthRate: 5 });
+
+			// Month 5 is identical in both series, so month 6 grows from the same base — the only
+			// difference is the £500 contribution the plain run adds on top and this one skips.
+			expect(points[6].investments).toBeCloseTo(plain[6].investments - 500, PENNY);
+			expect(points[6].contributions).toBe(plain[5].contributions);
+		});
+
+		it('scales a partial drop, and leaves other months paying in full', () => {
+			const points = projectScenario(contributing, {
+				growthRate: 5,
+				adjustMonth: (offset) => (offset === 6 ? { contributionFactor: 0.5 } : null)
+			});
+			const plain = projectScenario(contributing, { growthRate: 5 });
+
+			expect(points[6].contributions).toBe(plain[5].contributions + 250);
+			expect(points[12].contributions).toBe(plain[12].contributions - 250);
+		});
+
+		it('leaves the growth rate untouched — a skipped contribution earns nothing either way', () => {
+			const points = projectScenario(contributing, {
+				growthRate: 5,
+				adjustMonth: (offset) => (offset === 6 ? { contributionFactor: 0 } : null)
+			});
+			const plain = projectScenario(contributing, { growthRate: 5 });
+
+			// `growth` is the value change *not* explained by the contribution — an ordinary annuity
+			// pays in at month end, so a contribution earns no growth in its own month regardless of
+			// whether it was paid at all. Skipping it therefore changes `investments` and
+			// `contributions` by the same £500 and leaves `growth` exactly as it was.
+			expect(points[6].growth).toBeCloseTo(plain[6].growth, PENNY);
+			expect(points[6].investments / points[5].investments).toBeCloseTo(
+				(plain[6].investments - 500) / plain[5].investments,
+				4
+			);
+		});
+
+		it('still reconciles contributions + growth to the value change, at a fractional factor', () => {
+			const points = projectScenario(contributing, {
+				growthRate: 5,
+				adjustMonth: (offset) => (offset === 6 ? { contributionFactor: 0.3 } : null)
+			});
+			for (const point of points) {
+				expect(point.investments).toBeCloseTo(10_000 + point.contributions + point.growth, PENNY);
+			}
+		});
+
+		it('combines with a stated move in the same month', () => {
+			const points = projectScenario(contributing, {
+				growthRate: 5,
+				adjustMonth: (offset) => (offset === 6 ? { factor: 0.5, contributionFactor: 0 } : null)
+			});
+			expect(points[6].investments).toBeCloseTo(points[5].investments * 0.5, PENNY);
+			expect(points[6].contributions).toBe(points[5].contributions);
+		});
+
+		it('defaults to 1 (paid in full) when a month adjustment omits it', () => {
+			const points = projectScenario(contributing, {
+				growthRate: 5,
+				adjustMonth: (offset) => (offset === 6 ? { growthRate: 5 } : null)
+			});
+			expect(points).toEqual(projectScenario(contributing, { growthRate: 5 }));
+		});
+	});
 });
 
 /* -------------------------------------------------------------------------- */

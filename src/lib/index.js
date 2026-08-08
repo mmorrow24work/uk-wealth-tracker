@@ -35,6 +35,10 @@ export * from './compounding.js';
 // Market-crash overlay on a forecast — see the Forecast tab's StressTestPanel component.
 export * from './stress-test.js';
 
+// Income shock (job loss / illness) overlay on a forecast — see the Forecast tab's
+// IncomeShockPanel component.
+export * from './income-shock.js';
+
 // FIRE / Coast FIRE maths — see the Retirement tab's FireCalculator component.
 export * from './fire.js';
 
