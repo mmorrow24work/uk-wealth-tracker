@@ -49,6 +49,7 @@ import {
 /** @typedef {import('./types.js').Investment} Investment */
 /** @typedef {import('./types.js').Milestone} Milestone */
 /** @typedef {import('./types.js').MonthlyEntry} MonthlyEntry */
+/** @typedef {import('./types.js').Partner} Partner */
 /** @typedef {import('./types.js').Pension} Pension */
 /** @typedef {import('./types.js').Profile} Profile */
 /** @typedef {import('./types.js').Property} Property */
@@ -243,6 +244,31 @@ const DEFAULT_PROFILE = Object.freeze({
  */
 export function createProfile(overrides = {}) {
 	return { ...DEFAULT_PROFILE, ...overrides };
+}
+
+/**
+ * Partner defaults share {@link DEFAULT_PROFILE}'s retirement age assumption for the one field the
+ * two have in common; salary and pension % start at zero like the profile's do, and
+ * `ni_qualifying_years` starts unrecorded (`null`) like a pension's, not zero.
+ *
+ * @type {Partner}
+ */
+const DEFAULT_PARTNER = Object.freeze({
+	name: '',
+	dob_month: null,
+	dob_year: null,
+	retirement_age: DEFAULT_PROFILE.retirement_age,
+	gross_salary: 0,
+	pension_pct: 0,
+	ni_qualifying_years: null
+});
+
+/**
+ * @param {Partial<Partner>} [overrides]
+ * @returns {Partner}
+ */
+export function createPartner(overrides = {}) {
+	return { ...DEFAULT_PARTNER, ...overrides };
 }
 
 /**
@@ -499,6 +525,7 @@ export function createAppData(overrides = {}) {
 	return {
 		schema_version: SCHEMA_VERSION,
 		profile: createProfile(),
+		partner: null,
 		monthly_entries: [],
 		pensions: [],
 		properties: [],
@@ -561,6 +588,28 @@ function normaliseProfile(raw) {
 		tax_region: asOneOf(source.tax_region, TAX_REGIONS, DEFAULT_PROFILE.tax_region),
 		gross_salary: asNumber(source.gross_salary, 0),
 		pension_pct: asNumber(source.pension_pct, 0)
+	};
+}
+
+/**
+ * `null`/`undefined` — a document saved before partners existed, or a household with no partner —
+ * stays `null`, as does anything that is not a plain object (a hand-edited or corrupt Gist), rather
+ * than being coerced into a phantom partner with every field defaulted.
+ *
+ * @param {unknown} raw
+ * @returns {Partner | null}
+ */
+function normalisePartner(raw) {
+	if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return null;
+	const source = asRecord(raw);
+	return {
+		name: asString(source.name),
+		dob_month: asNullableNumber(source.dob_month),
+		dob_year: asNullableNumber(source.dob_year),
+		retirement_age: asNumber(source.retirement_age, DEFAULT_PARTNER.retirement_age),
+		gross_salary: asNumber(source.gross_salary, 0),
+		pension_pct: asNumber(source.pension_pct, 0),
+		ni_qualifying_years: asNullableNumber(source.ni_qualifying_years)
 	};
 }
 
@@ -826,6 +875,7 @@ export function normaliseAppData(raw) {
 				? storedVersion
 				: SCHEMA_VERSION,
 		profile: normaliseProfile(source.profile),
+		partner: normalisePartner(source.partner),
 		monthly_entries: asArray(source.monthly_entries)
 			.map(normaliseMonthlyEntry)
 			.sort(compareMonthlyEntries),
@@ -935,6 +985,7 @@ export function validateAppData(data) {
 	);
 
 	validateProfile(data.profile, check);
+	validatePartner(data.partner, check);
 
 	/** @type {Set<string>} */
 	const monthKeys = new Set();
@@ -1138,6 +1189,34 @@ function validateProfile(profile, check) {
 	);
 	check(isMoney(profile.gross_salary), 'profile.gross_salary', 'must be a non-negative amount');
 	check(inRange(profile.pension_pct, 0, 100), 'profile.pension_pct', 'must be 0–100%');
+}
+
+/**
+ * A no-op when there is no partner recorded — `null` is a valid, unpopulated household.
+ *
+ * @param {Partner | null} partner
+ * @param {(ok: boolean, path: string, message: string) => void} check
+ */
+function validatePartner(partner, check) {
+	if (partner === null) return;
+	check(
+		nullOrInRange(partner.dob_month, 1, 12),
+		'partner.dob_month',
+		'must be a month from 1 to 12, or null'
+	);
+	check(
+		nullOrInRange(partner.dob_year, MIN_YEAR, MAX_YEAR),
+		'partner.dob_year',
+		`must be a year between ${MIN_YEAR} and ${MAX_YEAR}, or null`
+	);
+	check(inRange(partner.retirement_age, 16, 120), 'partner.retirement_age', 'must be 16–120');
+	check(isMoney(partner.gross_salary), 'partner.gross_salary', 'must be a non-negative amount');
+	check(inRange(partner.pension_pct, 0, 100), 'partner.pension_pct', 'must be 0–100%');
+	check(
+		nullOrInRange(partner.ni_qualifying_years, 0, 60),
+		'partner.ni_qualifying_years',
+		'must be 0–60 years or null'
+	);
 }
 
 /**

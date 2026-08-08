@@ -63,6 +63,24 @@
  */
 
 /**
+ * A partner's headline planning fields, for the household net worth lens and joint retirement
+ * forecast (Phase 2, README.md → "Household / Partner Planning"). Deliberately narrower than
+ * {@link Profile} — a second person in the household does not need their own `journey_stage`,
+ * `inflation_rate`, `currency`, `tax_region` or `retirement_target`, since those are household-wide
+ * assumptions the primary profile already sets.
+ *
+ * @typedef {object} Partner
+ * @property {string} name Display name, e.g. "Alex". Labels the household net worth lens.
+ * @property {number | null} dob_month Birth month, 1–12.
+ * @property {number | null} dob_year Birth year, four digits.
+ * @property {number} retirement_age Target retirement age in years.
+ * @property {number} gross_salary Gross annual employment income (£/yr).
+ * @property {number} pension_pct Own pension contribution as a percentage of salary (%).
+ * @property {number | null} ni_qualifying_years National Insurance years already earned (35 gives
+ *   the full State Pension in 2026/27).
+ */
+
+/**
  * A single investment holding as recorded in one monthly snapshot. Holdings are re-stated each
  * month rather than mutated, so history is immutable and month-on-month change is a simple diff.
  *
@@ -281,6 +299,9 @@
  * @property {number} schema_version Version of this shape, for forward migration (see
  *   `SCHEMA_VERSION`). Not in README.md's outline; added so a stored Gist can be upgraded.
  * @property {Profile} profile
+ * @property {Partner | null} partner Household partner's headline planning fields (Phase 2). Null
+ *   when the household has no partner recorded — the normal case, not an always-present record
+ *   with blank fields.
  * @property {MonthlyEntry[]} monthly_entries Ordered oldest first.
  * @property {Pension[]} pensions
  * @property {Property[]} properties
