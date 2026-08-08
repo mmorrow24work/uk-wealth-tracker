@@ -210,16 +210,20 @@ function roundMoney(amount) {
  *
  * @param {import('./types.js').Investment} investment Holding as at the previous month end.
  * @param {number} offset Whole months since the anchor snapshot (1 = the first filled month).
- * @param {{ growthRate?: number, applyFundFees?: boolean }} [options]
+ * @param {{ growthRate?: number, applyFundFees?: boolean, contributionFactor?: number }} [options]
  * @returns {number} Value at this month end (£).
  */
 export function projectHoldingValue(investment, offset, options = {}) {
-	const { growthRate = DEFAULT_GROWTH_RATE, applyFundFees = true } = options;
+	const {
+		growthRate = DEFAULT_GROWTH_RATE,
+		applyFundFees = true,
+		contributionFactor = 1
+	} = options;
 	const annualRate = applyFundFees
 		? netAnnualGrowthRate(growthRate, investment.fund_fee)
 		: growthRate;
 	const grown = investment.value * (1 + monthlyGrowthRate(annualRate));
-	return roundMoney(grown + contributionForOffset(investment, offset));
+	return roundMoney(grown + contributionForOffset(investment, offset) * contributionFactor);
 }
 
 /* -------------------------------------------------------------------------- */

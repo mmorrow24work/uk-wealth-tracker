@@ -33,6 +33,10 @@
 	 * the one piece of forecast UI that exists today — swapping the scenario summary table's fixed
 	 * years-from-now horizons for one row per year of age within the chosen range — and is ready for
 	 * #12 to reuse (`filterPointsByAge`) once there is a chart series to zoom instead.
+	 *
+	 * The income shock overlay (#133) is the `IncomeShockPanel` section at the bottom, alongside the
+	 * stress test: same wiring — the baseline `Forecast` and the position that produced it — but for a
+	 * job-loss/illness event that cuts contributions instead of a market crash.
 	 */
 	import {
 		DEFAULT_SCENARIO_SPREAD,
@@ -46,6 +50,7 @@
 	import { ageAtPoint, milestoneCrossings, retirementMarker } from '$lib/milestones.js';
 	import { createInvestment, createProfile } from '$lib/model.js';
 	import CompoundingPanel from './CompoundingPanel.svelte';
+	import IncomeShockPanel from './IncomeShockPanel.svelte';
 	import StressTestPanel from './StressTestPanel.svelte';
 	import Card from './ui/card.svelte';
 
@@ -634,6 +639,15 @@
 
 		{#if position}
 			<StressTestPanel
+				{forecast}
+				{position}
+				options={forecastOptions}
+				offsets={rowOffsets}
+				dobYear={parsedDobYear}
+				dobMonth={parsedDobMonth}
+			/>
+
+			<IncomeShockPanel
 				{forecast}
 				{position}
 				options={forecastOptions}
