@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest';
 
-import { createInvestment, createProfile } from './model.js';
+import { createInvestment, createPartner, createProfile } from './model.js';
 import { forecastScenarios } from './forecast.js';
 import {
 	STANDARD_NET_WORTH_MILESTONES,
 	ageAtPoint,
 	formatMilestoneLabel,
+	householdRetirementMarkers,
 	milestoneCrossing,
 	milestoneCrossings,
 	netWorthCrossing,
@@ -243,5 +244,105 @@ describe('retirementMarker', () => {
 		expect(marker.alreadyReached).toBe(false);
 		expect(marker.point).toBeNull();
 		expect(marker.netWorth).toBeNull();
+	});
+
+	it('accepts a Partner in place of a Profile — the two share the three fields it reads', () => {
+		const forecast = forecastScenarios(
+			{
+				investments: [holding({ value: 50_000, monthly_contribution: 500 })],
+				start: JAN_2026,
+				months: 372
+			},
+			{ growthRate: 5 }
+		);
+		const partner = createPartner({ dob_year: 1990, dob_month: 1, retirement_age: 67 });
+
+		const marker = retirementMarker(forecast, partner);
+		expect(marker.available).toBe(true);
+		expect(marker.point?.year).toBe(2057);
+	});
+});
+
+/* -------------------------------------------------------------------------- */
+/* householdRetirementMarkers                                                  */
+/* -------------------------------------------------------------------------- */
+
+describe('householdRetirementMarkers', () => {
+	it('returns only a profile marker, labelled "You", when there is no partner', () => {
+		const forecast = forecastScenarios({ investments: [holding()], start: JAN_2026, months: 12 });
+		const profile = createProfile({ name: '', dob_year: 1990, dob_month: 1, retirement_age: 67 });
+
+		const markers = householdRetirementMarkers(forecast, profile);
+		expect(markers.profile.who).toBe('profile');
+		expect(markers.profile.label).toBe('You');
+		expect(markers.partner).toBeNull();
+	});
+
+	it("uses each person's own name when set", () => {
+		const forecast = forecastScenarios({ investments: [holding()], start: JAN_2026, months: 12 });
+		const profile = createProfile({ name: 'Sam', dob_year: 1990, retirement_age: 67 });
+		const partner = createPartner({ name: 'Alex', dob_year: 1992, retirement_age: 65 });
+
+		const markers = householdRetirementMarkers(forecast, profile, partner);
+		expect(markers.profile.label).toBe('Sam');
+		expect(markers.partner?.label).toBe('Alex');
+		expect(markers.partner?.who).toBe('partner');
+	});
+
+	it('falls back to "Partner" when the partner has no name', () => {
+		const forecast = forecastScenarios({ investments: [holding()], start: JAN_2026, months: 12 });
+		const profile = createProfile({ dob_year: 1990, retirement_age: 67 });
+		const partner = createPartner({ name: '', dob_year: 1992, retirement_age: 65 });
+
+		const markers = householdRetirementMarkers(forecast, profile, partner);
+		expect(markers.partner?.label).toBe('Partner');
+	});
+
+	it("finds each partner's marker independently — different ages land at different dates", () => {
+		const forecast = forecastScenarios(
+			{
+				investments: [holding({ value: 50_000, monthly_contribution: 500 })],
+				start: JAN_2026,
+				months: 480
+			},
+			{ growthRate: 5 }
+		);
+		const profile = createProfile({ dob_year: 1990, dob_month: 1, retirement_age: 67 });
+		const partner = createPartner({ dob_year: 1992, dob_month: 1, retirement_age: 60 });
+
+		const markers = householdRetirementMarkers(forecast, profile, partner);
+		expect(markers.profile.point?.year).toBe(2057);
+		// Two years younger but retiring seven years earlier lands well before the profile's marker.
+		expect(markers.partner?.point?.year).toBe(2052);
+		expect(markers.partner?.point?.offset).toBeLessThan(markers.profile.point?.offset ?? Infinity);
+	});
+
+	it('still returns a partner marker (unavailable) when the partner has no recorded birth year', () => {
+		const forecast = forecastScenarios({ investments: [holding()], start: JAN_2026, months: 12 });
+		const profile = createProfile({ dob_year: 1990, retirement_age: 67 });
+		const partner = createPartner({ dob_year: null, retirement_age: 65 });
+
+		const markers = householdRetirementMarkers(forecast, profile, partner);
+		expect(markers.partner).not.toBeNull();
+		expect(markers.partner?.available).toBe(false);
+		expect(markers.partner?.who).toBe('partner');
+	});
+
+	it('is unaffected by which scenario it is read against — the date is calendar-driven', () => {
+		const forecast = forecastScenarios(
+			{
+				investments: [holding({ value: 50_000, monthly_contribution: 500 })],
+				start: JAN_2026,
+				months: 372,
+				spread: 2
+			},
+			{ growthRate: 5 }
+		);
+		const profile = createProfile({ dob_year: 1990, dob_month: 1, retirement_age: 67 });
+		const partner = createPartner({ dob_year: 1990, dob_month: 1, retirement_age: 67 });
+
+		const markers = householdRetirementMarkers(forecast, profile, partner);
+		expect(markers.partner?.point?.year).toBe(markers.profile.point?.year);
+		expect(markers.partner?.netWorth?.realistic).toBe(markers.profile.netWorth?.realistic);
 	});
 });

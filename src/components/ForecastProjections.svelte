@@ -37,6 +37,17 @@
 	 * The income shock overlay (#133) is the `IncomeShockPanel` section at the bottom, alongside the
 	 * stress test: same wiring — the baseline `Forecast` and the position that produced it — but for a
 	 * job-loss/illness event that cuts contributions instead of a market crash.
+	 *
+	 * The joint retirement forecast (#144) adds a second, independent retirement-age marker for a
+	 * partner, alongside the existing one — README.md → "Household / Partner Planning": "Joint
+	 * retirement forecast with dual retirement age markers". `$lib/milestones.js`'s
+	 * `householdRetirementMarkers` finds it the same way #18's single marker was already found
+	 * (`retirementMarker`, called again), so this issue adds no second marker system, only a second
+	 * set of birth year/month/retirement age fields to feed it — the partner profile form (#170)
+	 * doesn't exist yet, so these follow the exact placeholder pattern #18 already set for the
+	 * primary profile's own fields, one section down. An "Add a partner" checkbox keeps the fields
+	 * out of the way for the (still typical) solo user, and unchecking it drops the partner marker
+	 * outright rather than leaving a stale one on screen.
 	 */
 	import {
 		DEFAULT_SCENARIO_SPREAD,
@@ -47,8 +58,8 @@
 		summariseForecast
 	} from '$lib/forecast.js';
 	import { forecastAgeBounds, summariseForecastByAge } from '$lib/age-filter.js';
-	import { ageAtPoint, milestoneCrossings, retirementMarker } from '$lib/milestones.js';
-	import { createInvestment, createProfile } from '$lib/model.js';
+	import { ageAtPoint, householdRetirementMarkers, milestoneCrossings } from '$lib/milestones.js';
+	import { createInvestment, createPartner, createProfile } from '$lib/model.js';
 	import CompoundingPanel from './CompoundingPanel.svelte';
 	import IncomeShockPanel from './IncomeShockPanel.svelte';
 	import StressTestPanel from './StressTestPanel.svelte';
@@ -111,6 +122,15 @@
 	let dobMonth = $state(dobMonthProp);
 	// svelte-ignore state_referenced_locally
 	let retirementAgeInput = $state(retirementAgeProp);
+
+	// Joint retirement forecast (#144) — a second, independent person's birth year/month and
+	// retirement age, feeding a second marker on the same forecast. Off by default: most users are
+	// solo, and an unchecked box means "no partner" rather than a partner silently defaulted in.
+	let includePartner = $state(false);
+	let partnerName = $state('');
+	let partnerDobYear = $state(null);
+	let partnerDobMonth = $state(null);
+	let partnerRetirementAgeInput = $state(67);
 
 	// Age range filter (#19) — unset by default, so the table shows its usual years-from-now
 	// horizons until the user actually asks to zoom to an age range.
@@ -189,6 +209,36 @@
 		})
 	);
 
+	// Joint retirement forecast (#144) — same parsing as the primary profile's own fields above,
+	// applied to a second person.
+	const parsedPartnerDobYear = $derived(parseOptionalInt(partnerDobYear));
+	const parsedPartnerDobMonthRaw = $derived(parseOptionalInt(partnerDobMonth));
+	const parsedPartnerDobMonth = $derived(
+		parsedPartnerDobMonthRaw !== null &&
+			parsedPartnerDobMonthRaw >= 1 &&
+			parsedPartnerDobMonthRaw <= 12
+			? parsedPartnerDobMonthRaw
+			: null
+	);
+	const parsedPartnerRetirementAge = $derived(parse(partnerRetirementAgeInput, 67));
+	const partnerRetirementAgeIsValid = $derived(
+		parsedPartnerRetirementAge >= 16 && parsedPartnerRetirementAge <= 120
+	);
+
+	// `null` while the checkbox is unchecked, matching `AppData.partner`'s own "no partner" state
+	// (`model.js`) — `householdRetirementMarkers` reads that as "nothing to plot" rather than a
+	// second marker for a person who was never added.
+	const markerPartner = $derived(
+		includePartner
+			? createPartner({
+					name: partnerName,
+					dob_year: parsedPartnerDobYear,
+					dob_month: parsedPartnerDobMonth,
+					retirement_age: partnerRetirementAgeIsValid ? parsedPartnerRetirementAge : 67
+				})
+			: null
+	);
+
 	const hasHistory = $derived(monthlyEntries.length > 0);
 
 	// Position projected when there is no recorded history: one synthetic holding standing in for
@@ -252,7 +302,11 @@
 	}
 
 	const milestones = $derived(forecast ? milestoneCrossings(forecast) : []);
-	const retirement = $derived(forecast ? retirementMarker(forecast, markerProfile) : null);
+	// #144's dual markers — `retirementMarkers.profile` is #18's original single marker, unchanged;
+	// `retirementMarkers.partner` is `null` unless the checkbox below is ticked.
+	const retirementMarkers = $derived(
+		forecast ? householdRetirementMarkers(forecast, markerProfile, markerPartner) : null
+	);
 
 	const monthFormatter = new Intl.DateTimeFormat('en-GB', { month: 'short', year: 'numeric' });
 	const currencyFormatter = new Intl.NumberFormat('en-GB', {
@@ -608,25 +662,113 @@
 				{/each}
 			</div>
 
-			{#if retirement}
+			{#snippet retirementLine(
+				/** @type {import('$lib/milestones.js').HouseholdRetirementMarker} */ marker
+			)}
 				<p class="text-sm text-muted-foreground">
-					{#if !retirement.available}
-						Add your birth year above to see when you reach retirement age {retirement.retirementAge}.
-					{:else if retirement.alreadyReached}
-						You've already reached retirement age {retirement.retirementAge}.
-					{:else if retirement.point && retirement.netWorth}
-						<span class="font-medium text-foreground">Retirement</span>
-						at age {retirement.retirementAge} falls in {formatMonth(retirement.point)}, projected
-						net worth {formatMoney(retirement.netWorth.realistic)}
-						(range {formatMoney(retirement.netWorth.pessimistic)}–{formatMoney(
-							retirement.netWorth.optimistic
+					<span class="font-medium text-foreground">{marker.label}:</span>
+					{#if !marker.available}
+						Add {marker.who === 'partner' ? 'their' : 'your'} birth year above to see when
+						{marker.who === 'partner' ? 'they reach' : 'you reach'} retirement age {marker.retirementAge}.
+					{:else if marker.alreadyReached}
+						Already reached retirement age {marker.retirementAge}.
+					{:else if marker.point && marker.netWorth}
+						Retirement at age {marker.retirementAge} falls in {formatMonth(marker.point)}, projected
+						household net worth {formatMoney(marker.netWorth.realistic)}
+						(range {formatMoney(marker.netWorth.pessimistic)}–{formatMoney(
+							marker.netWorth.optimistic
 						)}).
 					{:else}
-						Retirement age {retirement.retirementAge} falls beyond this {formatYears(
+						Retirement age {marker.retirementAge} falls beyond this {formatYears(
 							forecast.months / 12
 						)} horizon.
 					{/if}
 				</p>
+			{/snippet}
+
+			{#if retirementMarkers}
+				<div class="space-y-2">
+					{@render retirementLine(retirementMarkers.profile)}
+
+					<label class="flex items-center gap-1.5 text-xs text-muted-foreground">
+						<input type="checkbox" bind:checked={includePartner} />
+						Add a partner's retirement age too — joint forecast, issue #144
+					</label>
+
+					{#if includePartner}
+						<div class="rounded-md border border-border bg-muted/40 p-3">
+							<p class="text-xs text-muted-foreground mb-3">
+								No partner profile form yet (#170), so these are typed in here for this forecast
+								only — nothing is saved.
+							</p>
+							<div class="flex flex-wrap items-end gap-4">
+								<div class="flex flex-col gap-1">
+									<label class="text-xs font-medium" for="forecast-partner-name">Name</label>
+									<input
+										id="forecast-partner-name"
+										type="text"
+										placeholder="e.g. Alex"
+										bind:value={partnerName}
+										class="border border-input rounded-md px-2 py-1.5 text-sm w-32"
+									/>
+								</div>
+								<div class="flex flex-col gap-1">
+									<label class="text-xs font-medium" for="forecast-partner-dob-year">
+										Birth year
+									</label>
+									<input
+										id="forecast-partner-dob-year"
+										type="number"
+										min="1900"
+										max="2200"
+										step="1"
+										placeholder="e.g. 1990"
+										bind:value={partnerDobYear}
+										class="border border-input rounded-md px-2 py-1.5 text-sm w-28"
+									/>
+								</div>
+								<div class="flex flex-col gap-1">
+									<label class="text-xs font-medium" for="forecast-partner-dob-month">
+										Birth month
+									</label>
+									<input
+										id="forecast-partner-dob-month"
+										type="number"
+										min="1"
+										max="12"
+										step="1"
+										placeholder="1–12, optional"
+										bind:value={partnerDobMonth}
+										class="border border-input rounded-md px-2 py-1.5 text-sm w-28"
+									/>
+								</div>
+								<div class="flex flex-col gap-1">
+									<label class="text-xs font-medium" for="forecast-partner-retirement-age">
+										Retirement age
+									</label>
+									<input
+										id="forecast-partner-retirement-age"
+										type="number"
+										min="16"
+										max="120"
+										step="1"
+										bind:value={partnerRetirementAgeInput}
+										class="border border-input rounded-md px-2 py-1.5 text-sm w-24"
+									/>
+								</div>
+							</div>
+							{#if !partnerRetirementAgeIsValid}
+								<p class="text-sm text-red-600 mt-2">
+									Partner's retirement age must be between 16 and 120.
+								</p>
+							{/if}
+						</div>
+
+						{#if retirementMarkers.partner}
+							{@render retirementLine(retirementMarkers.partner)}
+						{/if}
+					{/if}
+				</div>
 			{/if}
 		</div>
 

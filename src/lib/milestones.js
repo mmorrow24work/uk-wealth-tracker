@@ -25,6 +25,12 @@
  *    £10k/£25k/£50k tiers, progress bars, achieved chips shown "off chart") is a bigger feature
  *    covering the whole net worth dashboard. This module only covers the four amounts the
  *    "Forecast" section names as chart pills, plus the retirement age line.
+ * 5. **A joint forecast's second marker is the same marker, found again.** README.md → "Household
+ *    / Partner Planning": "Joint retirement forecast with dual retirement age markers" (issue
+ *    #144). `Partner` (`model.js`) carries exactly the three fields {@link retirementMarker} reads
+ *    — `dob_year`, `dob_month`, `retirement_age` — so it never needed a `Profile`, only an object
+ *    shaped like the part of one it uses. {@link householdRetirementMarkers} calls it twice rather
+ *    than a second marker system growing up beside it.
  */
 
 /**
@@ -153,8 +159,12 @@ export function ageAtPoint(dobYear, dobMonth, point) {
  */
 
 /**
+ * Takes a `Profile` or a `Partner` — anything with the three fields above — so the same function
+ * finds either person's marker in a joint household forecast; see
+ * {@link householdRetirementMarkers}.
+ *
  * @param {import('./forecast.js').Forecast} forecast
- * @param {import('./types.js').Profile} profile
+ * @param {import('./types.js').Profile | import('./types.js').Partner} profile
  * @returns {RetirementMarker}
  */
 export function retirementMarker(forecast, profile) {
@@ -189,6 +199,49 @@ export function retirementMarker(forecast, profile) {
 					pessimistic: forecast.series.pessimistic[point.offset]?.net_worth ?? point.net_worth,
 					realistic: point.net_worth,
 					optimistic: forecast.series.optimistic[point.offset]?.net_worth ?? point.net_worth
+				}
+			: null
+	};
+}
+
+/**
+ * One person's {@link RetirementMarker}, tagged with who it belongs to and a display label — the
+ * two things a chart plotting two markers needs that the plain shape doesn't carry, since nothing
+ * in it says whose retirement age it is.
+ *
+ * @typedef {RetirementMarker & { who: 'profile' | 'partner', label: string }} HouseholdRetirementMarker
+ */
+
+/**
+ * Both partners' independent retirement-age markers on the same forecast — issue #144. Two calls
+ * to {@link retirementMarker}, one per person, per convention 5 above.
+ *
+ * `partner` is `null` only when the household has no second person recorded at all
+ * (`AppData.partner === null`, `model.js`'s "no partner" state). A partner who *is* recorded but
+ * has no birth year yet still gets a marker back — `available: false`, the same "add a birth
+ * year" state {@link retirementMarker} already reports for the primary profile — so a chart can
+ * tell "nothing to plot" from "plot it, but say why it can't yet".
+ *
+ * `label` falls back to "You" / "Partner" when the respective `name` field is empty, so a marker
+ * is always identifiable even before either name has been typed in.
+ *
+ * @param {import('./forecast.js').Forecast} forecast
+ * @param {import('./types.js').Profile} profile
+ * @param {import('./types.js').Partner | null} [partner]
+ * @returns {{ profile: HouseholdRetirementMarker, partner: HouseholdRetirementMarker | null }}
+ */
+export function householdRetirementMarkers(forecast, profile, partner = null) {
+	return {
+		profile: {
+			...retirementMarker(forecast, profile),
+			who: 'profile',
+			label: profile.name || 'You'
+		},
+		partner: partner
+			? {
+					...retirementMarker(forecast, partner),
+					who: 'partner',
+					label: partner.name || 'Partner'
 				}
 			: null
 	};
