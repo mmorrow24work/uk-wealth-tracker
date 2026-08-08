@@ -6,6 +6,7 @@
 	import { resolve } from '$app/paths';
 	import { githubConnection, refreshGitHubConnection } from '$lib/github-auth.js';
 	import { NAV_TABS, isActiveTab } from '$lib/nav.js';
+	import ThemeToggleButton from '../components/ThemeToggleButton.svelte';
 	import '../app.css';
 
 	let { children } = $props();
@@ -28,8 +29,8 @@
 </svelte:head>
 
 <div class="flex flex-col min-h-screen">
-	<header class="flex items-center gap-6 px-4 py-3 border-b border-gray-200 flex-wrap">
-		<span class="font-semibold">uk-wealth-tracker</span>
+	<header class="flex items-center gap-6 px-4 py-3 border-b border-border flex-wrap">
+		<span class="font-semibold text-foreground">uk-wealth-tracker</span>
 		<nav aria-label="Main">
 			<ul class="flex flex-wrap gap-1 list-none m-0 p-0">
 				{#each NAV_TABS as tab (tab.id)}
@@ -39,8 +40,8 @@
 							href={resolve(tab.href)}
 							class:active
 							aria-current={active ? 'page' : undefined}
-							class="inline-block px-3 py-1.5 rounded text-gray-900 no-underline text-sm hover:bg-gray-100 {active
-								? 'bg-black text-white'
+							class="inline-block px-3 py-1.5 rounded text-foreground no-underline text-sm hover:bg-accent hover:text-accent-foreground {active
+								? 'bg-primary text-primary-foreground hover:bg-primary hover:text-primary-foreground'
 								: ''}"
 						>
 							{tab.label}
@@ -49,14 +50,17 @@
 				{/each}
 			</ul>
 		</nav>
-		<a
-			href={resolve('/connect')}
-			aria-current={isActiveTab(page.url.pathname, '/connect') ? 'page' : undefined}
-			class="ml-auto inline-block px-3 py-1.5 rounded text-sm no-underline border border-gray-200 text-gray-900 hover:bg-gray-100"
-			title="GitHub sign-in for Gist sync — where your data is stored"
-		>
-			{connectionLabel}
-		</a>
+		<div class="ml-auto flex items-center gap-2">
+			<a
+				href={resolve('/connect')}
+				aria-current={isActiveTab(page.url.pathname, '/connect') ? 'page' : undefined}
+				class="inline-block px-3 py-1.5 rounded text-sm no-underline border border-border text-foreground hover:bg-accent hover:text-accent-foreground"
+				title="GitHub sign-in for Gist sync — where your data is stored"
+			>
+				{connectionLabel}
+			</a>
+			<ThemeToggleButton />
+		</div>
 	</header>
 
 	<main class="flex-1 px-4 py-6">

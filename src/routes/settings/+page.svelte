@@ -9,6 +9,7 @@
 	import { onMount } from 'svelte';
 
 	import DataManager from '../../components/DataManager.svelte';
+	import ThemeSettings from '../../components/ThemeSettings.svelte';
 	import { hydrateAppData } from '$lib/index.js';
 
 	let ready = $state(false);
@@ -25,7 +26,9 @@
 	sync, export everything as one JSON file, or replace what's stored here by importing one back in.
 </p>
 
-<div class="mt-6 max-w-2xl">
+<div class="mt-6 max-w-2xl flex flex-col gap-6">
+	<ThemeSettings />
+
 	{#if ready}
 		<DataManager />
 	{:else}

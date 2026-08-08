@@ -14,6 +14,14 @@
    LayerChart's tokens by hand below, so it has to import it by hand too. */
 @import 'layerchart/core.css';
 
+/* Tailwind v4's default `dark:` variant follows `prefers-color-scheme` (a media query), which
+   can't be toggled by anything on the page — it would ignore an explicit choice made through
+   `$lib/theme.js`'s toggle (issue #116) whenever it disagreed with the OS setting. Redeclaring the
+   variant as a class-and-descendant selector makes `dark:` utilities (e.g. NetWorthChart's
+   `dark:text-green-500`) key off the same `.dark` class on `<html>` that `:root`/`.dark` below and
+   the toggle itself already use, so both theming paths track one flag rather than two. */
+@custom-variant dark (&:where(.dark, .dark *));
+
 :root {
 	--background: 0 0% 100%;
 	--foreground: 0 0% 3.6%;

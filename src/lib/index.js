@@ -125,3 +125,8 @@ export * from './xlsx-export.js';
 // Global reactive app state — the shared store every feature tab should read/write against
 // instead of local component state. Hydrates from and syncs (debounced) to persistence.js.
 export * from './store.js';
+
+// Light/dark mode toggle (issue #116) — a per-browser display preference kept in localStorage,
+// deliberately outside the AppData document above. See the nav header's ThemeToggleButton and the
+// Settings tab's ThemeSettings component.
+export * from './theme.js';
