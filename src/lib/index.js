@@ -57,12 +57,20 @@ export * from './student-loan.js';
 // the Tax tab's SalarySacrifice component.
 export * from './salary-sacrifice.js';
 
+// ISA allowance tracker across all six wrappers (2026/27) — see the Tax tab's IsaAllowanceTracker
+// component.
+export * from './isa.js';
+
 // Defined Benefit pension income from an accrual formula or a scheme statement — see the Pensions
 // tab's DefinedBenefitIncome component.
 export * from './defined-benefit.js';
 
 // Pension tax relief per pot (2026/27) — see the Pensions tab's PensionTaxRelief component.
 export * from './pension-relief.js';
+
+// UK State Pension from National Insurance qualifying years (2026/27) — see the Pensions tab's
+// StatePensionProjection component.
+export * from './state-pension.js';
 
 // Dividend income planner: per-holding DRIP compounding projection vs income-phase income, split
 // around an age slider — see the Dividends tab's DividendTracker/DividendIncomePlanner components.
@@ -72,8 +80,17 @@ export * from './dividends.js';
 // tab's DividendTaxSummary component.
 export * from './dividend-tax.js';
 
+// Every retirement income stream in one view — Defined Benefit, annuity, SIPP drawdown, ISA
+// withdrawals, GIA dividends and the State Pension — see the Pensions tab's RetirementIncomeStreams
+// component. Sits below the modules above because it composes all of them.
+export * from './retirement-income.js';
+
 // Property equity + buy-to-let cashflow/yield — see the Property tab's PropertyTracker component.
 export * from './property.js';
+
+// Physical asset gain/loss, CAGR, net position after holding costs and future value projection —
+// see the Assets tab's AssetsTracker/AssetValueProjectionChart components.
+export * from './assets.js';
 
 // Persistence. `persistence.js` is the front door — it owns `loadAppData`/`saveAppData` and which
 // mode the app is in; the two backends are re-exported by name only, since all three modules
@@ -100,6 +117,10 @@ export * from './github-auth.js';
 // JSON export/import — the manual bridge between the two persistence modes, and a backup mechanism
 // either way. See the Settings tab's DataManager component.
 export * from './data-transfer.js';
+
+// XLSX export — a real .xlsx workbook built client-side with SheetJS, read-only (JSON stays the
+// only re-importable format). See the Settings tab's DataManager component.
+export * from './xlsx-export.js';
 
 // Global reactive app state — the shared store every feature tab should read/write against
 // instead of local component state. Hydrates from and syncs (debounced) to persistence.js.

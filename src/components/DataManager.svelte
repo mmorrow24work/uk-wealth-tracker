@@ -19,6 +19,13 @@
 	 * 3. **Import.** Parsed and fully validated (`parseImportDocument`) before anything on screen —
 	 *    or the store — changes. A rejected file lists what is wrong and leaves the current document
 	 *    untouched; a valid file still needs a confirm click, since it replaces everything.
+	 *
+	 * A fourth, read-only export sits beside JSON (issue #64): a real `.xlsx` workbook built with
+	 * `$lib/xlsx-export.js`. It shares Export's `Blob`-download plumbing but not its section — XLSX
+	 * is never a re-import source, only JSON round-trips (DESIGN.md → "Data Persistence": "CSV and
+	 * XLSX export are secondary, read-only data paths"), so it gets its own card with its own copy
+	 * making that explicit rather than living as a second button beside "Export data as JSON" where
+	 * it would look like an equivalent choice.
 	 */
 	import { get } from 'svelte/store';
 
@@ -30,6 +37,7 @@
 		setPersistenceMode
 	} from '$lib/persistence.js';
 	import { appData, flushAppDataSync, syncState } from '$lib/store.js';
+	import { XLSX_MIME_TYPE, exportFinancialDataXlsx } from '$lib/xlsx-export.js';
 	import Button from './ui/button.svelte';
 	import Card from './ui/card.svelte';
 
@@ -88,6 +96,23 @@
 			URL.revokeObjectURL(url);
 		} catch (cause) {
 			exportError = cause instanceof Error ? cause.message : String(cause);
+		}
+	}
+
+	let xlsxExportError = $state('');
+
+	function exportXlsx() {
+		xlsxExportError = '';
+		try {
+			const { bytes, filename } = exportFinancialDataXlsx(get(appData));
+			const url = URL.createObjectURL(new Blob([bytes], { type: XLSX_MIME_TYPE }));
+			const link = document.createElement('a');
+			link.href = url;
+			link.download = filename;
+			link.click();
+			URL.revokeObjectURL(url);
+		} catch (cause) {
+			xlsxExportError = cause instanceof Error ? cause.message : String(cause);
 		}
 	}
 
@@ -211,6 +236,22 @@
 		</p>
 		<Button type="button" size="sm" onclick={exportData}>Export data as JSON</Button>
 		{#if exportError}<p class="text-sm text-red-600 mt-2" role="alert">{exportError}</p>{/if}
+	</Card>
+
+	<Card className="p-4">
+		<h2 class="text-lg font-semibold mb-1">Export data as Excel</h2>
+		<p class="text-sm text-muted-foreground mb-3">
+			Downloads a real <code>.xlsx</code> workbook — net worth history, holdings and debts by month, plus
+			your pensions, properties and physical assets. This is read-only: unlike the JSON export above,
+			an XLSX file can't be brought back in via Import, so it's a spreadsheet for your own use, not a
+			backup.
+		</p>
+		<Button type="button" size="sm" variant="outline" onclick={exportXlsx}>
+			Export data as Excel (.xlsx)
+		</Button>
+		{#if xlsxExportError}<p class="text-sm text-red-600 mt-2" role="alert">
+				{xlsxExportError}
+			</p>{/if}
 	</Card>
 
 	<Card className="p-4">
