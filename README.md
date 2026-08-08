@@ -131,7 +131,7 @@ A personal UK net worth, tax and retirement planning app — self-hosted on GitH
 
 #### Data Import / Export
 - CSV export: account data, monthly entries, investment positions, net worth history
-- CSV import: WealthR export format + generic format
+- CSV import: generic format (this app's own Holdings/Debts export, parse + merge — done, #130); WealthR export format still blocked on a real sample file, see DESIGN.md's "Data Migration"
 - GDPR Article 20 data portability compatible
 
 #### Monte Carlo Retirement Simulator

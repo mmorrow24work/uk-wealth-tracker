@@ -126,6 +126,12 @@ export * from './xlsx-export.js';
 // xlsx-export.js's row-shaping. Read-only, like XLSX. See the Settings tab's DataManager component.
 export * from './csv-export.js';
 
+// CSV import — parse/validate/merge engine for re-importing this app's own Holdings/Debts CSV
+// export shape (the inverse of csv-export.js; Net Worth History stays read-only, and WealthR's own
+// format is still out of scope pending a real sample file). Pure logic only; DataManager.svelte's
+// file picker / confirm step is a separate piece built on top of this module's exported API.
+export * from './csv-import.js';
+
 // Global reactive app state — the shared store every feature tab should read/write against
 // instead of local component state. Hydrates from and syncs (debounced) to persistence.js.
 export * from './store.js';
