@@ -9,6 +9,7 @@
 	import { onMount } from 'svelte';
 
 	import DataManager from '../../components/DataManager.svelte';
+	import PaletteSettings from '../../components/PaletteSettings.svelte';
 	import ThemeSettings from '../../components/ThemeSettings.svelte';
 	import TypographySettings from '../../components/TypographySettings.svelte';
 	import { hydrateAppData } from '$lib/index.js';
@@ -29,6 +30,7 @@
 
 <div class="mt-6 max-w-2xl flex flex-col gap-6">
 	<ThemeSettings />
+	<PaletteSettings />
 	<TypographySettings />
 
 	{#if ready}

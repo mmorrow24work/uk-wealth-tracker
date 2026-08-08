@@ -36,6 +36,21 @@
 					else if (size === 'large') document.documentElement.classList.add('text-scale-large');
 				} catch (e) {}
 			})();
+
+			// Named colour palette (issue #126), applied before Svelte hydrates for the same reason as
+			// the two above. Mirrors `src/lib/palette.js`'s `resolvePalette()`; the name list is the
+			// same one `PALETTES` holds there, duplicated because this file is static markup and can't
+			// import that module. `src/palettes.css.test.js` asserts this list, that module's list and
+			// `src/app.css`'s rules all name the same palettes, so they can't drift apart silently.
+			(function () {
+				try {
+					var palettes = ['male', 'female', 'football', 'cricket', 'beach', 'country', 'city'];
+					var palette = localStorage.getItem('uk-wealth-tracker:palette');
+					if (palettes.indexOf(palette) !== -1) {
+						document.documentElement.classList.add('palette-' + palette);
+					}
+				} catch (e) {}
+			})();
 		</script>
 		%sveltekit.head%
 	</head>
