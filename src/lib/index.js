@@ -63,6 +63,11 @@ export * from './lifetime-gifts.js';
 // the bands and the bill themselves are estate.js's, run against each year's own figures.
 export * from './budget-policy.js';
 
+// Property gift-on-sale — turns a property sale's proceeds into lifetime-gifts.js Gifts, split
+// between named beneficiaries, rather than an ordinary disposal. Sits on top of lifetime-gifts.js,
+// so it must be re-exported after it.
+export * from './property-gift-on-sale.js';
+
 // FIRE / Coast FIRE maths — see the Retirement tab's FireCalculator component.
 export * from './fire.js';
 
