@@ -85,6 +85,11 @@ export * from './dividend-tax.js';
 // component. Sits below the modules above because it composes all of them.
 export * from './retirement-income.js';
 
+// Monte Carlo retirement simulator: 5,000 log-normal market paths walked month by month, funding a
+// net target income out of a pension pot and an ISA under UK tax, and counting how many still had
+// money at the target age. The engine only — the Retirement tab's results UI is issue #132.
+export * from './monte-carlo.js';
+
 // Property equity + buy-to-let cashflow/yield — see the Property tab's PropertyTracker component.
 export * from './property.js';
 
