@@ -226,6 +226,9 @@
 		importPhase = 'idle';
 	}
 
+	/** @type {HTMLInputElement | undefined} */
+	let importFileInput = $state();
+
 	/** @type {Record<'holdings' | 'debts', string>} */
 	const CSV_DATASET_LABELS = { holdings: 'Holdings', debts: 'Debts' };
 
@@ -282,6 +285,9 @@
 		pendingCsvImport = null;
 		csvImportPhase = 'idle';
 	}
+
+	/** @type {HTMLInputElement | undefined} */
+	let csvImportFileInput = $state();
 </script>
 
 <div class="flex flex-col gap-6">
@@ -340,9 +346,7 @@
 			an XLSX file can't be brought back in via Import, so it's a spreadsheet for your own use, not a
 			backup.
 		</p>
-		<Button type="button" size="sm" variant="outline" onclick={exportXlsx}>
-			Export data as Excel (.xlsx)
-		</Button>
+		<Button type="button" size="sm" onclick={exportXlsx}>Export data as Excel (.xlsx)</Button>
 		{#if xlsxExportError}<p class="text-sm text-red-600 mt-2" role="alert">
 				{xlsxExportError}
 			</p>{/if}
@@ -361,7 +365,6 @@
 			<Button
 				type="button"
 				size="sm"
-				variant="outline"
 				onclick={() => downloadCsv(() => exportNetWorthHistoryCsv(get(appData)))}
 			>
 				Net Worth History (.csv)
@@ -369,7 +372,6 @@
 			<Button
 				type="button"
 				size="sm"
-				variant="outline"
 				onclick={() => downloadCsv(() => exportHoldingsCsv(get(appData)))}
 			>
 				Holdings (.csv)
@@ -377,7 +379,6 @@
 			<Button
 				type="button"
 				size="sm"
-				variant="outline"
 				onclick={() => downloadCsv(() => exportDebtsCsv(get(appData)))}
 			>
 				Debts (.csv)
@@ -395,16 +396,17 @@
 		</p>
 
 		{#if importPhase === 'idle'}
-			<label class="text-sm font-medium block mb-1" for="import-file">
-				Choose a JSON export file
-			</label>
 			<input
 				id="import-file"
 				type="file"
 				accept="application/json,.json"
 				onchange={onFileChosen}
-				class="text-sm"
+				bind:this={importFileInput}
+				class="hidden"
 			/>
+			<Button type="button" size="sm" onclick={() => importFileInput?.click()}>
+				Choose a JSON export file
+			</Button>
 		{:else if pendingImport}
 			<div class="border border-border rounded-md p-3">
 				<p class="text-sm font-medium mb-1">
@@ -452,16 +454,17 @@
 		</p>
 
 		{#if csvImportPhase === 'idle'}
-			<label class="text-sm font-medium block mb-1" for="import-csv-file">
-				Choose a Holdings or Debts CSV export file
-			</label>
 			<input
 				id="import-csv-file"
 				type="file"
 				accept="text/csv,.csv"
 				onchange={onCsvFileChosen}
-				class="text-sm"
+				bind:this={csvImportFileInput}
+				class="hidden"
 			/>
+			<Button type="button" size="sm" onclick={() => csvImportFileInput?.click()}>
+				Choose a Holdings or Debts CSV export file
+			</Button>
 		{:else if pendingCsvImport}
 			<div class="border border-border rounded-md p-3">
 				<p class="text-sm font-medium mb-1">
