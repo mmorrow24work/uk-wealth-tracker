@@ -50,14 +50,14 @@ Recomputed by the pipeline's "Patch journal metrics" step after every issue that
 <!-- VELOCITY_STATS_START -->
 | Metric | Value |
 |---|---|
-| Issues with recorded metrics | 36 |
-| Mean time per issue | 10m 23s |
+| Issues with recorded metrics | 37 |
+| Mean time per issue | 10m 19s |
 | Mean turns per issue | 99 |
-| Mean input tokens per issue | 1,827 |
-| Mean output tokens per issue | 37,789 |
-| Mean estimated cost per issue (Claude, actual) | $2.2805 |
-| Mean ballpark cost per issue (GPT-5-tier, illustrative) | $2.3349 |
-| Mean ballpark cost per issue (Gemini-tier, illustrative) | $1.2902 |
+| Mean input tokens per issue | 1,740 |
+| Mean output tokens per issue | 36,849 |
+| Mean estimated cost per issue (Claude, actual) | $2.2243 |
+| Mean ballpark cost per issue (GPT-5-tier, illustrative) | $2.2766 |
+| Mean ballpark cost per issue (Gemini-tier, illustrative) | $1.2585 |
 
 <!-- VELOCITY_STATS_END -->
 
@@ -3754,14 +3754,14 @@ open at cutover, branch protection, Pages + the custom domain) gets recreated on
 
 ## Footer: cover the commit-date formatting fallback with tests — 2026-08-12
 <!-- METRICS:footer-commit-date-format-testable -->
-- **Execution Duration:** __DURATION__ seconds
-- **Model:** __MODEL__
-- **Turns:** __TURNS__
-- **Input Tokens:** __INPUT_TOKENS__
-- **Output Tokens:** __OUTPUT_TOKENS__
-- **Estimated Cost:** $__COST__ (from Claude Code's reported total_cost_usd)
-- **Ballpark cost, comparable GPT-5-tier model:** $__GPT_BALLPARK__ (illustrative -- see methodology note above)
-- **Ballpark cost, comparable Gemini-tier model:** $__GEMINI_BALLPARK__ (illustrative -- see methodology note above)
+- **Execution Duration:** 450 seconds
+- **Model:** claude-sonnet-5
+- **Turns:** 87
+- **Input Tokens:** 250
+- **Output Tokens:** 20863
+- **Estimated Cost:** $0.3137 (from Claude Code's reported total_cost_usd)
+- **Ballpark cost, comparable GPT-5-tier model:** $0.2941 (illustrative -- see methodology note above)
+- **Ballpark cost, comparable Gemini-tier model:** $0.1797 (illustrative -- see methodology note above)
 
 **Decisions:**
 - **Issue #133 turned out to already be fully implemented on `main`** — `__COMMIT_DATE__`'s four touch points (`vite.config.js`, `app.d.ts`, `eslint.config.js`, `$lib/version.js`), the footer's `updated {formattedDate}` fragment, and the missing/unparseable-date fallback were all present and working (this repo's own prior journal entry for this same issue title documents that build, and its "No new test file" trade-off explains why). Re-verified end to end before touching anything: `npm test` (3070/3070), `npm run check` (0 errors), `npm run lint` (clean), and a real `npm run build`.
