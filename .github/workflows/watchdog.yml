@@ -1,0 +1,60 @@
+name: Pipeline Watchdog
+
+# Lightweight, independent check: if claude-build.yml hasn't started a run
+# in over 30 minutes while there's real status:ready work waiting, nudge it
+# with a manual workflow_dispatch. Runs entirely on GitHub's infrastructure,
+# so it doesn't depend on a local machine or an open Claude Code session --
+# but it shares the exact same GitHub Actions job queue as claude-build.yml
+# itself, so it is NOT immune to the same congestion it's meant to work
+# around (see docs/github.md, "Runner reliability"). It's a second,
+# independent trigger path, not a guarantee -- if GitHub silently drops
+# scheduled runs platform-wide, this schedule can go quiet too, same as
+# claude-build.yml's. Deliberately offset to a different minute than
+# claude-build.yml's own cron (3/18/33/48 vs. 7/22/37/52) so the two don't
+# collide on the exact same queue slot.
+on:
+  schedule:
+    - cron: "3,18,33,48 * * * *"
+  workflow_dispatch: {}
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  watchdog:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check for a stall and nudge if needed
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          last_run=$(gh run list --repo "${{ github.repository }}" --workflow=claude-build.yml --limit 1 --json createdAt)
+          last_created=$(echo "$last_run" | jq -r '.[0].createdAt // empty')
+
+          if [ -z "$last_created" ]; then
+            echo "No prior claude-build.yml runs found -- nothing to compare against."
+            exit 0
+          fi
+
+          last_epoch=$(date -d "$last_created" +%s)
+          now_epoch=$(date -u +%s)
+          minutes_since=$(( (now_epoch - last_epoch) / 60 ))
+
+          echo "Last claude-build.yml run started $minutes_since minute(s) ago ($last_created)."
+
+          if [ "$minutes_since" -le 30 ]; then
+            echo "Within 30 minutes -- not stalled, nothing to do."
+            exit 0
+          fi
+
+          ready_count=$(gh issue list --repo "${{ github.repository }}" --state open --label status:ready --json number --jq 'length')
+          echo "$ready_count issue(s) currently status:ready."
+
+          if [ "$ready_count" -eq 0 ]; then
+            echo "No ready work waiting -- the gap is expected (queue genuinely empty), nothing to do."
+            exit 0
+          fi
+
+          echo "Stalled: $minutes_since minute(s) since last run, $ready_count issue(s) ready. Dispatching claude-build.yml."
+          gh workflow run claude-build.yml --repo "${{ github.repository }}"

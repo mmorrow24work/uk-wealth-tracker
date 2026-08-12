@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+	<title>uk-wealth-tracker</title>
+	<rect width="128" height="128" rx="24" fill="#1f2937" />
+	<text x="64" y="88" font-family="system-ui, -apple-system, sans-serif" font-size="72" font-weight="bold" text-anchor="middle" fill="#10b981">£</text>
+</svg>

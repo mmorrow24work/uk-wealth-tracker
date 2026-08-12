@@ -1,0 +1,573 @@
+name: Autonomous Build Pipeline
+
+# Cadence: schedule is a 15-minute backstop, not the real interval -- the
+# pull_request(closed) trigger chains immediately into the next ready issue
+# as soon as one merges. concurrency below ensures only one run is ever
+# active, so overlapping triggers queue instead of racing.
+#
+# Minute offset (7/22/37/52, not 0/15/30/45): GitHub Actions runs scheduled
+# workflows through the same shared job queue as every other trigger across
+# every repo on the platform -- there's no dedicated capacity for cron, and
+# delays cluster hardest at round-number minutes since that's when the most
+# schedules everywhere fire at once (confirmed here empirically: three
+# consecutive runs failed outright with "job was not acquired by Runner",
+# then the schedule didn't fire at all for 4.5+ hours). GitHub's own docs
+# recommend an off-beat minute for exactly this reason. Not a complete fix
+# -- the underlying queue congestion is shared infrastructure, offsetting
+# just avoids adding to the worst of it -- but it's free and can only help.
+# Interval itself stays at 15 min: this is a pure stall-recovery backstop,
+# so going shorter only adds our own load to the shared queue for no
+# throughput benefit (real cadence is the instant merge-triggered chaining
+# above), and going longer would slow recovery from a genuine stall.
+on:
+  schedule:
+    - cron: "7,22,37,52 * * * *"
+  pull_request:
+    types: [closed]
+  workflow_dispatch: {}
+
+concurrency:
+  group: claude-build
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+  id-token: write
+
+jobs:
+  build:
+    if: github.event_name != 'pull_request' || github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    env:
+      # Merges performed with the default GITHUB_TOKEN don't trigger further
+      # workflow runs (GitHub's anti-recursion protection) -- confirmed
+      # empirically: a human-merged PR chained correctly, but the pipeline's
+      # own GITHUB_TOKEN-merged PR did not, silently falling back to the
+      # 15-min cron between every issue. A PAT belonging to a real account
+      # isn't subject to that exemption, so gh pr merge --auto (and every
+      # other gh call in this job) uses it instead.
+      GH_TOKEN: ${{ secrets.GH_PAT }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resync stale open PRs with main
+        # The one-time "Sync branch with main" step (below) only runs once,
+        # right when a PR is created. docs/journal.md is touched by every
+        # single PR, so in practice almost every open PR goes CONFLICTING
+        # the moment any other PR merges -- observed repeatedly leaving PRs
+        # with auto-merge already enabled and green checks sitting unmerged
+        # indefinitely because nothing ever revisited them after creation.
+        # Runs unconditionally, every invocation, before the timer starts so
+        # it doesn't inflate the current issue's cost/duration estimate.
+        run: bash .github/scripts/resync-stale-prs.sh
+
+      - name: Record start time
+        id: timer
+        run: echo "start=$(date +%s)" >> "$GITHUB_OUTPUT"
+
+      - name: Force-close the issue this PR closes
+        # GitHub's automatic "Closes #N" issue-closing has not fired
+        # reliably on this fork (confirmed on two separate merges: #43->#2
+        # and #44->#3, both left the issue open despite a correctly
+        # recognized closingIssuesReferences link). Close it explicitly
+        # instead of depending on that behavior.
+        if: github.event_name == 'pull_request' && github.event.pull_request.merged == true
+        env:
+          # Interpolating github.event.pull_request.body directly into the
+          # `run:` script (as this used to) means any shell metacharacter
+          # Claude's PR description happens to contain -- parens, backticks,
+          # quotes from a markdown checklist like "(2 pre-existing warnings)"
+          # -- becomes part of the script itself. Confirmed as the cause of
+          # a full job failure (run 31092209321, "syntax error near
+          # unexpected token `('"), which skipped issue #18's own pickup
+          # entirely. Passing it through env: and reading $PR_BODY is the
+          # standard fix -- the value is then just data, never script text.
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          issue_number=$(printf '%s' "$PR_BODY" | grep -ioP '[Cc]loses #\K\d+' | head -1)
+          if [ -n "$issue_number" ]; then
+            gh issue close "$issue_number" --reason completed || echo "Issue #$issue_number already closed or close failed -- continuing."
+          else
+            echo "No 'Closes #N' reference found in PR body -- nothing to close."
+          fi
+
+      - name: Reset stalled issues
+        # Issues can get stuck in status:in-progress forever if the "Run
+        # Claude Code" step for them ever failed or errored out (max-turns,
+        # crash, etc.) -- there was previously no step that put them back
+        # in the queue, so the picker (which only looks at status:ready)
+        # silently skipped them for good, and later milestones' ready work
+        # ran first instead. Safe to do at the top of every run: the
+        # concurrency group guarantees only one run of this workflow is
+        # ever active, so any issue still in-progress here was left that
+        # way by a run that has already fully finished.
+        # Matches "Closes #<n>" in an open PR's body, OR "#<n>" in its
+        # title, since Claude doesn't always use the literal "Closes #<n>"
+        # phrasing (see PR #52 / issue #13, "#13" only in the title). Does
+        # NOT match "#<n>" loosely anywhere in the body -- that was tried
+        # and caused a real false positive: PR #70 (issue #12's own PR)
+        # mentions "issue #67" in its body prose as a cross-reference, which
+        # made issue #67 look like it already had an open PR and left it
+        # stuck in-progress indefinitely after really failing separately.
+        # An issue is only reset if no open PR actually references it.
+        run: |
+          stalled=$(gh issue list --state open --label status:in-progress --json number --jq '.[].number')
+          open_prs=$(gh pr list --state open --json title,body)
+          for n in $stalled; do
+            has_pr=$(echo "$open_prs" | jq --arg n "$n" \
+              'map(select((.body | test("[Cc]loses #" + $n + "(\\D|$)")) or (.title | test("#" + $n + "(\\D|$)")))) | length > 0')
+            if [ "$has_pr" = "false" ]; then
+              echo "Issue #$n has no open PR -- resetting to status:ready"
+              gh issue edit "$n" --remove-label "status:in-progress" --add-label "status:ready"
+            else
+              echo "Issue #$n has an open PR referencing it -- leaving as-is"
+            fi
+          done
+
+      - name: Pick next ready issue
+        id: pick
+        run: |
+          # Sort by milestone number first, then issue number within it, so
+          # issues added later (e.g. splitting an oversized issue) still slot
+          # into the correct execution order by milestone rather than always
+          # sorting to the back by raw issue number.
+          issue_json=$(gh issue list --state open --label status:ready --json number,title,labels,milestone --limit 100 \
+            | jq -c 'sort_by([(.milestone.number // 999), .number]) | .[0] // empty')
+
+          if [ -z "$issue_json" ]; then
+            echo "No status:ready issue found -- nothing to do this run."
+            echo "found=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          number=$(echo "$issue_json" | jq -r '.number')
+          title=$(echo "$issue_json" | jq -r '.title')
+          model_label=$(echo "$issue_json" | jq -r '[.labels[].name] | map(select(startswith("model:"))) | .[0] // "model:sonnet"')
+          case "${model_label#model:}" in
+            haiku) model_id="claude-haiku-4-5" ;;
+            opus) model_id="claude-opus-5" ;;
+            *) model_id="claude-sonnet-5" ;;
+          esac
+
+          echo "found=true" >> "$GITHUB_OUTPUT"
+          echo "number=$number" >> "$GITHUB_OUTPUT"
+          echo "title=$title" >> "$GITHUB_OUTPUT"
+          echo "model=$model_id" >> "$GITHUB_OUTPUT"
+
+      - name: Mark issue in-progress
+        if: steps.pick.outputs.found == 'true'
+        run: |
+          gh issue edit "${{ steps.pick.outputs.number }}" \
+            --remove-label "status:ready" --add-label "status:in-progress"
+
+      - name: Run Claude Code
+        if: steps.pick.outputs.found == 'true'
+        id: claude
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          # Default allowedTools for non-comment-triggered runs is read-only
+          # (Glob, Grep, LS, Read) -- Bash/Write/Edit must be granted
+          # explicitly or every scaffold/feature issue fails with tool
+          # permission denials before writing anything.
+          # max-turns 60 was too tight a margin: a debug run with
+          # show_full_output confirmed issue #4 (nav shell + routing, not an
+          # oversized task) needed 58 turns of genuinely necessary work, not
+          # an inefficiency loop -- it was failing right at the boundary.
+          # 100 gives legitimate multi-file issues comfortable headroom.
+          claude_args: "--model ${{ steps.pick.outputs.model }} --max-turns 100 --allowedTools Bash,Write,Edit,Read,Glob,Grep,LS"
+          base_branch: main
+          branch_prefix: "issue-"
+          display_report: true
+          prompt: |
+            Implement GitHub issue #${{ steps.pick.outputs.number }} ("${{ steps.pick.outputs.title }}")
+            in this repository, fully and to a working, tested state. Read CLAUDE.md, README.md and
+            DESIGN.md first for architecture and conventions.
+
+            When the implementation is complete:
+            1. Open a pull request whose description includes the line "Closes #${{ steps.pick.outputs.number }}".
+            2. Append one entry to docs/journal.md, following the format documented at the top of that
+               file. Use today's date. Write the "Decisions" and "Trade-offs / deviations from prompt"
+               sections yourself, in the same voice and level of detail as any existing entries. For the
+               <!-- METRICS:... --> block, copy the eight placeholder tokens (__DURATION__, __MODEL__,
+               __TURNS__, __INPUT_TOKENS__, __OUTPUT_TOKENS__, __COST__, __GPT_BALLPARK__,
+               __GEMINI_BALLPARK__) verbatim into the new entry --
+               do not fill them in yourself; a later automated step replaces them with the real numbers
+               for this run.
+
+      - name: Detect max-turns failure
+        # If "Run Claude Code" failed, check whether it was specifically
+        # error_max_turns (issue genuinely too large for one session) as
+        # opposed to some other failure (crash, transient infra issue,
+        # etc.) -- only the former should trigger an automatic split.
+        # execution_file is written before the action raises its terminal
+        # error, so it's available even on this failure path (confirmed:
+        # present in the log for a real error_max_turns run).
+        if: steps.pick.outputs.found == 'true' && failure() && steps.claude.conclusion == 'failure'
+        id: maxturns
+        run: |
+          execution_file="${{ steps.claude.outputs.execution_file }}"
+          is_max_turns=false
+          if [ -n "$execution_file" ] && [ -f "$execution_file" ]; then
+            # execution_file is an array of every event in the session --
+            # the session-start "init" event also has its own .subtype
+            # field, and a naive `.. | .subtype?` grabs THAT first (wrong).
+            # The terminal outcome is the last event with type=="result".
+            # Confirmed as a real bug: issue #67 hit error_max_turns but
+            # this picked up "init" and silently skipped the auto-split.
+            subtype=$(jq -r '[.[] | select(.type=="result")] | last | .subtype // empty' "$execution_file" 2>/dev/null || echo "")
+            if [ "$subtype" = "error_max_turns" ]; then
+              is_max_turns=true
+            fi
+          fi
+          echo "is_max_turns=$is_max_turns" >> "$GITHUB_OUTPUT"
+
+      - name: Split oversized issue
+        # Don't wait for a second failure on the same issue (previous
+        # policy: split #1 and #12 only after they'd each failed twice).
+        # The very first error_max_turns triggers an immediate split now --
+        # a second full 100-turn attempt at genuinely oversized work is
+        # pure waste. This is a *triage* pass (opus, no Write/Edit tools,
+        # tight turn cap): narrow the failed issue to its smallest
+        # foundational piece and spin the rest out as new issue(s) in the
+        # same milestone, same pattern used by hand for #1->#1+#40+#41 and
+        # #12->#12+#67.
+        if: always() && steps.maxturns.outputs.is_max_turns == 'true'
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          claude_args: "--model claude-opus-5 --max-turns 20 --allowedTools Bash,Read,Grep,Glob,LS"
+          base_branch: main
+          display_report: true
+          prompt: |
+            Issue #${{ steps.pick.outputs.number }} ("${{ steps.pick.outputs.title }}") just hit Claude
+            Code's max-turns limit (100) while being implemented -- it's too large for one session.
+            Split it. Do not implement it and do not open a pull request.
+
+            1. Read the issue (`gh issue view ${{ steps.pick.outputs.number }}`) and skim relevant existing
+               code/docs (CLAUDE.md, README.md, DESIGN.md, src/) to understand its actual scope and what's
+               already built that it can depend on.
+            2. Decide a natural split into 2 (rarely 3) smaller pieces, each independently completable well
+               within 100 turns. Prefer splitting off any "add a new dependency / library integration" piece
+               from the "build the feature using it" piece, or splitting along an obvious data/domain
+               boundary (e.g. two separate entry forms). Match the pattern already used for issue #1 ->
+               #1 + #40 + #41, and issue #12 -> #12 + #67.
+            3. Narrow THIS issue to just the smallest/foundational piece: `gh issue edit
+               ${{ steps.pick.outputs.number }} --title "..." --body "..."`.
+            4. Create new GitHub issue(s) for the rest, in the same milestone this issue is in, e.g.:
+               `gh issue create --milestone "<same milestone>" --label "status:ready" --label "model:sonnet"
+               --title "..." --body "..."` (pick model:haiku/sonnet/opus per the routing table in
+               docs/github.md, not always sonnet). Reference this issue's number in each new issue's body,
+               and reference the new issue number(s) back in this issue's narrowed body.
+            5. Do not add or remove the status:ready / status:in-progress labels on
+               #${{ steps.pick.outputs.number }} yourself -- a later workflow step resets that
+               deterministically regardless of what you do here.
+
+      - name: Reset split issue to ready
+        # Deterministic safety net, independent of whether the split step
+        # above ran cleanly or how it left labels: an issue that just went
+        # through an auto-split must never be left stuck in-progress.
+        if: always() && steps.maxturns.outputs.is_max_turns == 'true'
+        run: |
+          gh issue edit "${{ steps.pick.outputs.number }}" \
+            --remove-label "status:in-progress" --add-label "status:ready" || true
+
+      - name: Find PR created for this issue
+        # The action's branch_name/session_id outputs are only populated in
+        # its own "tag mode" (auto-branch-creation for @claude comment
+        # triggers). In our schedule/dispatch-triggered "agent mode", Claude
+        # creates the branch itself via Bash/git as instructed in the
+        # prompt, so the action has no visibility into it even though the
+        # PR genuinely exists. Detect it directly via the "Closes #N" text
+        # we told Claude to include.
+        if: steps.pick.outputs.found == 'true'
+        id: findpr
+        run: |
+          # Match "Closes #<n>" in the body, OR "#<n>" in the title --
+          # Claude doesn't always use the literal "Closes #<n>" phrasing
+          # (see PR #52 / issue #13, "#13" only in the title), so title is
+          # also checked. Deliberately NOT matching "#<n>" loosely anywhere
+          # in the body: that was tried and caused a real false positive
+          # (PR #70/issue #12 mentions "issue #67" in its body prose,
+          # which made issue #67 look like it already had a PR here too).
+          pr_json=$(gh pr list --state open --json number,headRefName,title,body --limit 100 \
+            | jq -c --arg n "${{ steps.pick.outputs.number }}" \
+              '[.[] | select((.body | test("[Cc]loses #" + $n + "(\\D|$)")) or (.title | test("#" + $n + "(\\D|$)")))] | .[0] // empty')
+
+          if [ -z "$pr_json" ]; then
+            echo "No PR found referencing Closes #${{ steps.pick.outputs.number }} -- Claude did not finish (e.g. hit max-turns)."
+            echo "found=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "found=true" >> "$GITHUB_OUTPUT"
+          echo "number=$(echo "$pr_json" | jq -r '.number')" >> "$GITHUB_OUTPUT"
+          echo "branch=$(echo "$pr_json" | jq -r '.headRefName')" >> "$GITHUB_OUTPUT"
+
+      - name: Sync branch with main (auto-resolve or close+requeue)
+        # Added after a real backlog: with several issues landing per hour,
+        # branches were going stale against main faster than a human could
+        # fix them by hand -- every previous conflict resolution in this
+        # repo's history (see docs/github.md) was done manually, one PR at a
+        # time, which cannot keep up once merge velocity is high. Most
+        # conflicts are docs/journal.md only (an append-only log -- two
+        # branches adding a new entry at the same insertion point), which is
+        # mechanically safe to resolve: keep every entry from both sides,
+        # ordered by which is genuinely new relative to origin/main. Real
+        # conflicts in any other file still get the established close +
+        # re-queue treatment, now automatic instead of requiring a human to
+        # notice and intervene.
+        if: steps.pick.outputs.found == 'true' && steps.findpr.outputs.found == 'true'
+        id: sync
+        run: |
+          git fetch origin main "${{ steps.findpr.outputs.branch }}"
+          git checkout "${{ steps.findpr.outputs.branch }}"
+          git config user.name "claude-build-pipeline"
+          git config user.email "actions@users.noreply.github.com"
+
+          resolved=true
+          if ! git merge origin/main --no-commit --no-ff -q 2>/tmp/merge.log; then
+            conflicted=$(git diff --name-only --diff-filter=U)
+            echo "Conflicted files:"
+            echo "$conflicted"
+
+            if [ "$conflicted" = "docs/journal.md" ]; then
+              echo "Only docs/journal.md conflicts -- auto-resolving as an append-only log."
+              git show :2:docs/journal.md > /tmp/journal.ours.md
+              git show :3:docs/journal.md > /tmp/journal.theirs.md
+              # Read from origin/main specifically, not the checked-out branch -- this branch may
+              # predate the script existing at all.
+              git show origin/main:.github/scripts/resolve-journal-conflict.py > /tmp/resolve-journal-conflict.py
+              python3 /tmp/resolve-journal-conflict.py
+              if grep -q "<<<<<<<" docs/journal.md; then
+                echo "Auto-resolution left conflict markers -- treating as unresolvable."
+                resolved=false
+              else
+                git add docs/journal.md
+                git commit -q -m "Merge main into ${{ steps.findpr.outputs.branch }}, auto-resolve docs/journal.md conflict"
+              fi
+            else
+              echo "Real conflicts beyond docs/journal.md -- cannot auto-resolve."
+              resolved=false
+            fi
+
+            if [ "$resolved" = "false" ]; then
+              git merge --abort 2>/dev/null || git reset --hard HEAD
+            fi
+          fi
+
+          # Even a clean/no-op merge, or the journal-only auto-resolve above, gets a full local
+          # verification pass before it's trusted -- a syntactically clean merge can still combine
+          # two individually-correct branches into something that doesn't actually build.
+          if [ "$resolved" = "true" ]; then
+            npm ci --no-audit --no-fund -q
+            if npm run build -q && npm run lint -q && npm run check -q && npm test -q; then
+              # Plain `git push` doesn't honor the GH_TOKEN env var (that only authenticates the
+              # `gh` CLI) -- it uses whatever credential helper is active in git's config, which by
+              # this point belongs to the claude-code-action step further up, not this job's PAT.
+              # This exact bug already broke "Patch journal metrics" once (see docs/github.md) --
+              # reintroduced here on this step's first real deployment, silently blocking
+              # "Enable auto-merge" for every PR this step touched (not just conflicted ones,
+              # *any* PR, since the push runs unconditionally after a successful merge/resolve).
+              # Second layer of the same bug: this referenced a bash var named GH_PAT, which was
+              # never actually defined anywhere in the job -- only GH_TOKEN is (set at job level
+              # from the secrets.GH_PAT secret). Both this step and "Patch journal metrics" were
+              # pushing with an empty token as a result. Use GH_TOKEN, the var that's actually set.
+              git push "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git" \
+                "HEAD:${{ steps.findpr.outputs.branch }}"
+            else
+              echo "Post-merge verification failed -- not pushing a broken merge."
+              resolved=false
+            fi
+          fi
+
+          if [ "$resolved" = "false" ]; then
+            gh pr close "${{ steps.findpr.outputs.number }}" --comment "Closing automatically -- this branch has diverged too far from main to merge safely (real conflicts beyond docs/journal.md, or the auto-resolved merge failed local build/lint/check/test verification). Re-queuing issue #${{ steps.pick.outputs.number }} for a fresh implementation against current main."
+            gh issue edit "${{ steps.pick.outputs.number }}" --remove-label "status:in-progress" --add-label "status:ready"
+          fi
+
+          echo "resolved=$resolved" >> "$GITHUB_OUTPUT"
+
+      - name: Patch journal metrics
+        if: steps.pick.outputs.found == 'true' && steps.findpr.outputs.found == 'true' && steps.sync.outputs.resolved == 'true'
+        continue-on-error: true
+        run: |
+          git fetch origin "${{ steps.findpr.outputs.branch }}"
+          git checkout "${{ steps.findpr.outputs.branch }}"
+
+          end=$(date +%s)
+          duration=$(( end - ${{ steps.timer.outputs.start }} ))
+          model="${{ steps.pick.outputs.model }}"
+
+          execution_file="${{ steps.claude.outputs.execution_file }}"
+          turns=0
+          input_tokens=0
+          output_tokens=0
+          # Best-effort parse of the Claude Code execution transcript. Schema
+          # isn't officially pinned down; fall back to 0 rather than failing
+          # the step if the shape doesn't match.
+          if [ -n "$execution_file" ] && [ -f "$execution_file" ]; then
+            turns=$(jq '[.[] | select(.type=="assistant")] | length' "$execution_file" 2>/dev/null || echo 0)
+            input_tokens=$(jq '[.. | .input_tokens? // empty] | add // 0' "$execution_file" 2>/dev/null || echo 0)
+            output_tokens=$(jq '[.. | .output_tokens? // empty] | add // 0' "$execution_file" 2>/dev/null || echo 0)
+          fi
+
+          case "$model" in
+            claude-opus-5) in_rate=5; out_rate=25 ;;
+            claude-haiku-4-5) in_rate=1; out_rate=5 ;;
+            *) in_rate=3; out_rate=15 ;;
+          esac
+          cost=$(awk -v i="$input_tokens" -v o="$output_tokens" -v ir="$in_rate" -v orr="$out_rate" \
+            'BEGIN { printf "%.4f", (i/1000000*ir) + (o/1000000*orr) }')
+
+          # Ballpark cost on a comparably-tiered GPT-5-series / Gemini model,
+          # scaling Claude's own actual cost by the ratio of blended list
+          # prices (see the methodology note in docs/journal.md for the
+          # exact comparison models, rates and the assumed 3:1 input:output
+          # ratio this is derived from). Illustrative only.
+          case "$model" in
+            claude-opus-5) gpt_factor=1.125; gem_factor=0.5625 ;;
+            claude-haiku-4-5) gpt_factor=0.859; gem_factor=0.425 ;;
+            *) gpt_factor=0.9375; gem_factor=0.5729 ;;
+          esac
+          gpt_ballpark=$(awk -v c="$cost" -v f="$gpt_factor" 'BEGIN { printf "%.4f", c * f }')
+          gemini_ballpark=$(awk -v c="$cost" -v f="$gem_factor" 'BEGIN { printf "%.4f", c * f }')
+
+          # Patch only the LAST (i.e. newest, since the journal is
+          # append-only) <!-- METRICS: ... --> block in the file, not every
+          # occurrence of these tokens. A plain `sed -i s/__DURATION__/.../`
+          # replaces that token on *every* line of the whole file that still
+          # has it -- harmless while the git-push bug above meant this step
+          # never actually landed a commit, but the first real success would
+          # have overwritten every still-unpatched historical entry with
+          # this one run's numbers. Caught before it ever fired for real.
+          DURATION="$duration" MODEL="$model" TURNS="$turns" \
+          INPUT_TOKENS="$input_tokens" OUTPUT_TOKENS="$output_tokens" COST="$cost" \
+          GPT_BALLPARK="$gpt_ballpark" GEMINI_BALLPARK="$gemini_ballpark" \
+          python3 - <<'PYEOF'
+          import os
+          import re
+
+          with open("docs/journal.md") as f:
+              text = f.read()
+
+          marker = "<!-- METRICS:"
+          last = text.rfind(marker)
+          if last == -1:
+              raise SystemExit("No METRICS marker found in docs/journal.md -- nothing to patch")
+          head, tail = text[:last], text[last:]
+
+          for token, value in [
+              ("__DURATION__", os.environ["DURATION"]),
+              ("__MODEL__", os.environ["MODEL"]),
+              ("__TURNS__", os.environ["TURNS"]),
+              ("__INPUT_TOKENS__", os.environ["INPUT_TOKENS"]),
+              ("__OUTPUT_TOKENS__", os.environ["OUTPUT_TOKENS"]),
+              ("__COST__", os.environ["COST"]),
+              ("__GPT_BALLPARK__", os.environ["GPT_BALLPARK"]),
+              ("__GEMINI_BALLPARK__", os.environ["GEMINI_BALLPARK"]),
+          ]:
+              tail = tail.replace(token, value, 1)
+
+          text = head + tail
+
+          with open("docs/journal.md", "w") as f:
+              f.write(text)
+          PYEOF
+
+          # Recompute the Build Velocity table from every entry that now has
+          # real (non-placeholder, non-n/a) numbers, including the one just
+          # patched above.
+          python3 - <<'PYEOF'
+          import re
+
+          with open("docs/journal.md") as f:
+              text = f.read()
+
+          # Only look at real entries (after the Build Velocity section) --
+          # the intro's example template block above it uses realistic-
+          # looking numbers that would otherwise get counted as a real
+          # entry, silently inflating every mean by one bogus data point.
+          entries_text = text[text.index("<!-- VELOCITY_STATS_END -->"):]
+
+          durations = [int(x) for x in re.findall(r"\*\*Execution Duration:\*\* (\d+) seconds", entries_text)]
+          turns = [int(x) for x in re.findall(r"\*\*Turns:\*\* (\d+)\b", entries_text)]
+          input_toks = [int(x) for x in re.findall(r"\*\*Input Tokens:\*\* (\d+)\b", entries_text)]
+          output_toks = [int(x) for x in re.findall(r"\*\*Output Tokens:\*\* (\d+)\b", entries_text)]
+          costs = [float(x) for x in re.findall(r"\*\*Estimated Cost:\*\* \$([0-9.]+)", entries_text)]
+          gpt_costs = [float(x) for x in re.findall(r"comparable GPT-5-tier model:\*\* \$([0-9.]+)", entries_text)]
+          gem_costs = [float(x) for x in re.findall(r"comparable Gemini-tier model:\*\* \$([0-9.]+)", entries_text)]
+
+          def mean(xs):
+              return sum(xs) / len(xs) if xs else None
+
+          def fmt_duration(seconds):
+              if seconds is None:
+                  return "n/a"
+              m, s = divmod(round(seconds), 60)
+              return f"{m}m {s:02d}s"
+
+          def fmt_num(x):
+              return "n/a" if x is None else f"{x:,.0f}"
+
+          def fmt_cost(x):
+              return "n/a" if x is None else f"${x:,.4f}"
+
+          table = (
+              "| Metric | Value |\n"
+              "|---|---|\n"
+              f"| Issues with recorded metrics | {len(durations)} |\n"
+              f"| Mean time per issue | {fmt_duration(mean(durations))} |\n"
+              f"| Mean turns per issue | {fmt_num(mean(turns))} |\n"
+              f"| Mean input tokens per issue | {fmt_num(mean(input_toks))} |\n"
+              f"| Mean output tokens per issue | {fmt_num(mean(output_toks))} |\n"
+              f"| Mean estimated cost per issue (Claude, actual) | {fmt_cost(mean(costs))} |\n"
+              f"| Mean ballpark cost per issue (GPT-5-tier, illustrative) | {fmt_cost(mean(gpt_costs))} |\n"
+              f"| Mean ballpark cost per issue (Gemini-tier, illustrative) | {fmt_cost(mean(gem_costs))} |\n"
+          )
+
+          text = re.sub(
+              r"(?s)(<!-- VELOCITY_STATS_START -->\n).*?(\n<!-- VELOCITY_STATS_END -->)",
+              lambda m: m.group(1) + table + m.group(2),
+              text,
+          )
+
+          with open("docs/journal.md", "w") as f:
+              f.write(text)
+          PYEOF
+
+          git config user.name "claude-build-pipeline"
+          git config user.email "actions@users.noreply.github.com"
+          git add docs/journal.md
+          git commit -m "Fill in journal metrics for issue #${{ steps.pick.outputs.number }}" || echo "Nothing to commit"
+
+          # Plain `git push` doesn't honor the GH_TOKEN env var (that only
+          # authenticates the `gh` CLI) -- it uses whatever credential
+          # helper is active in git's config, and the claude-code-action
+          # step above leaves its own short-lived credential in place,
+          # which doesn't have push rights on this branch. Point the push
+          # explicitly at the job's GH_TOKEN env var instead of relying on
+          # ambient git config. NOTE: an earlier version of this comment
+          # referenced a bash var named GH_PAT, which was never actually
+          # defined anywhere in this job (only GH_TOKEN is, from the
+          # secrets.GH_PAT secret at job level) -- that meant this push
+          # silently authenticated with an empty token and failed on every
+          # run, masked the whole time by this step's continue-on-error.
+          git push "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git" \
+            "HEAD:${{ steps.findpr.outputs.branch }}"
+
+      - name: Mark issue in-review
+        if: steps.pick.outputs.found == 'true' && steps.findpr.outputs.found == 'true' && steps.sync.outputs.resolved == 'true'
+        run: |
+          gh issue edit "${{ steps.pick.outputs.number }}" \
+            --remove-label "status:in-progress" --add-label "status:in-review"
+
+      - name: Enable auto-merge
+        if: steps.pick.outputs.found == 'true' && steps.findpr.outputs.found == 'true' && steps.sync.outputs.resolved == 'true'
+        run: |
+          gh pr merge "${{ steps.findpr.outputs.number }}" --auto --squash
