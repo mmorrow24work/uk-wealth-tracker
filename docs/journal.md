@@ -50,14 +50,14 @@ Recomputed by the pipeline's "Patch journal metrics" step after every issue that
 <!-- VELOCITY_STATS_START -->
 | Metric | Value |
 |---|---|
-| Issues with recorded metrics | 36 |
-| Mean time per issue | 10m 23s |
+| Issues with recorded metrics | 37 |
+| Mean time per issue | 10m 19s |
 | Mean turns per issue | 99 |
-| Mean input tokens per issue | 1,827 |
-| Mean output tokens per issue | 37,789 |
-| Mean estimated cost per issue (Claude, actual) | $2.2805 |
-| Mean ballpark cost per issue (GPT-5-tier, illustrative) | $2.3349 |
-| Mean ballpark cost per issue (Gemini-tier, illustrative) | $1.2902 |
+| Mean input tokens per issue | 1,740 |
+| Mean output tokens per issue | 36,849 |
+| Mean estimated cost per issue (Claude, actual) | $2.2243 |
+| Mean ballpark cost per issue (GPT-5-tier, illustrative) | $2.2766 |
+| Mean ballpark cost per issue (Gemini-tier, illustrative) | $1.2585 |
 
 <!-- VELOCITY_STATS_END -->
 
@@ -3751,3 +3751,23 @@ open at cutover, branch protection, Pages + the custom domain) gets recreated on
 **Trade-offs / deviations from prompt:**
 - **No new test file.** `+layout.svelte`, like every other file under `src/routes/`, has zero existing unit test coverage in this repo — routes aren't unit-tested here at all (`find src/routes -iname '*.test.js'` returns nothing), and `COMMIT_SHA`/`CODENAME` are themselves untested constants in `version.test.js` (only the pure `codenameForSha()` helper is covered). Adding a bespoke test harness for this one component would be inconsistent with that precedent. Verified instead via the full existing pipeline — `npm test` (3070 passed, unchanged from `main`), `npm run check` (0 errors, same 2 pre-existing `<slot>` warnings), `npm run lint` (clean) — plus a real `npm run build`, then grepping the compiled client bundle to confirm `__COMMIT_DATE__` was replaced with this repo's actual `git log -1 --format=%cI` output and that the `updated ${...}` template plus the `dateStyle:medium,timeStyle:short` formatter config both compiled into the layout chunk as expected.
 - **No live browser/Playwright pass**, unlike some recent entries in this log — this is a purely presentational, build-time-constant addition with no interactive state, network call, or user input to exercise, so static verification of the compiled output plus the unaffected test suite was judged sufficient.
+
+## Footer: cover the commit-date formatting fallback with tests — 2026-08-12
+<!-- METRICS:footer-commit-date-format-testable -->
+- **Execution Duration:** 450 seconds
+- **Model:** claude-sonnet-5
+- **Turns:** 87
+- **Input Tokens:** 250
+- **Output Tokens:** 20863
+- **Estimated Cost:** $0.3137 (from Claude Code's reported total_cost_usd)
+- **Ballpark cost, comparable GPT-5-tier model:** $0.2941 (illustrative -- see methodology note above)
+- **Ballpark cost, comparable Gemini-tier model:** $0.1797 (illustrative -- see methodology note above)
+
+**Decisions:**
+- **Issue #133 turned out to already be fully implemented on `main`** — `__COMMIT_DATE__`'s four touch points (`vite.config.js`, `app.d.ts`, `eslint.config.js`, `$lib/version.js`), the footer's `updated {formattedDate}` fragment, and the missing/unparseable-date fallback were all present and working (this repo's own prior journal entry for this same issue title documents that build, and its "No new test file" trade-off explains why). Re-verified end to end before touching anything: `npm test` (3070/3070), `npm run check` (0 errors), `npm run lint` (clean), and a real `npm run build`.
+- **Extracted the fallback logic into `formatCommitDate()` in `$lib/version.js` rather than leaving it inline in `+layout.svelte`, reversing the prior entry's explicit decision.** The prior entry's rationale — no route in this repo has unit tests, so a bespoke harness for one component would be inconsistent — is true in general, but this specific behaviour (returning `''` instead of "Invalid Date" for a missing/unparseable `COMMIT_DATE`) is the one piece of logic the issue text calls out by name as something to get right, and it was otherwise unverifiable by anything other than reading the code. Pulling it out costs nothing structurally: `formatCommitDate` is a pure function next to `COMMIT_DATE`/`codenameForSha`, `+layout.svelte` becomes a one-line caller, and the missing/empty/unparseable cases are now asserted by `version.test.js` instead of just eyeballed.
+- **The new "valid ISO timestamp" test asserts the output shape (`/^\d{1,2} \w{3} \d{4}, \d{2}:\d{2}$/`) rather than an exact clock string.** First wrote it as an exact-string assertion and it failed under `TZ=UTC` (this runner's default) despite passing under `TZ=Europe/London` — `Intl.DateTimeFormat` with no explicit `timeZone` renders in whatever zone the process runs in, same as `ActivityLog.svelte`/`GitHubSignIn.svelte`'s identical formatter, so a fixed expected string would have made the test flaky across machines/CI rather than testing anything real about the function.
+
+**Trade-offs / deviations from prompt:**
+- **No functional/UI change** — the footer already showed the right thing. This PR's diff is confined to moving logic into a tested location; nothing a user would see differs before and after.
+- **Left the prior journal entry for this issue title in place rather than editing it.** The log is documented as append-only ("newest entries at the bottom"); since the actual code delta here is real (a genuine, separately-committed diff, not a re-run of identical work), it gets its own entry rather than amending history.
