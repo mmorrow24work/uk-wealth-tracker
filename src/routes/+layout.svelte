@@ -6,7 +6,7 @@
 	import { resolve } from '$app/paths';
 	import { githubConnection, refreshGitHubConnection } from '$lib/github-auth.js';
 	import { NAV_GROUPS, NAV_TABS, isActiveTab } from '$lib/nav.js';
-	import { COMMIT_SHA, COMMIT_DATE, CODENAME } from '$lib/version.js';
+	import { COMMIT_SHA, COMMIT_DATE, CODENAME, formatCommitDate } from '$lib/version.js';
 	import ThemeToggleButton from '../components/ThemeToggleButton.svelte';
 	import '../app.css';
 
@@ -42,19 +42,11 @@
 	// outside this one render, unlike theme/connection which are shared stores.
 	let sidebarOpen = $state(false);
 
-	// Issue #269: same date-formatting convention as ActivityLog.svelte/GitHubSignIn.svelte. Guards
-	// against a missing/unparseable COMMIT_DATE (local dev without git, a shallow clone) the same
-	// way the footer already guards a missing COMMIT_SHA -- omit the fragment rather than show
-	// "Invalid Date".
-	const commitDateFormatter = new Intl.DateTimeFormat('en-GB', {
-		dateStyle: 'medium',
-		timeStyle: 'short'
-	});
-	const formattedCommitDate = $derived.by(() => {
-		if (!COMMIT_DATE) return '';
-		const parsed = new Date(COMMIT_DATE);
-		return Number.isNaN(parsed.getTime()) ? '' : commitDateFormatter.format(parsed);
-	});
+	// Issue #269: same date-formatting convention as ActivityLog.svelte/GitHubSignIn.svelte. The
+	// empty/unparseable-COMMIT_DATE fallback (local dev without git, a shallow clone) lives in
+	// `formatCommitDate` itself so it's unit-tested (version.test.js) rather than only reachable
+	// through this component.
+	const formattedCommitDate = $derived(formatCommitDate(COMMIT_DATE));
 </script>
 
 <svelte:head>

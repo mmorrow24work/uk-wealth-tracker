@@ -125,3 +125,25 @@ export const CODENAME = codenameForSha(COMMIT_SHA);
  * @type {string}
  */
 export const COMMIT_DATE = typeof __COMMIT_DATE__ !== 'undefined' ? __COMMIT_DATE__ : '';
+
+// Same convention as ActivityLog.svelte/GitHubSignIn.svelte's own commit-adjacent timestamps.
+const commitDateFormatter = new Intl.DateTimeFormat('en-GB', {
+	dateStyle: 'medium',
+	timeStyle: 'short'
+});
+
+/**
+ * A readable local date + time for {@link COMMIT_DATE}, e.g. "12 Aug 2026, 17:03" -- pulled out
+ * of the footer (`+layout.svelte`) so the empty/unparseable fallback is unit-testable, since
+ * components can't be (this project has no browser test environment). Falls back to "" rather
+ * than showing "Invalid Date", for the same reasons `COMMIT_DATE` itself can be empty (local dev
+ * without git, a shallow clone).
+ *
+ * @param {string} commitDate
+ * @returns {string}
+ */
+export function formatCommitDate(commitDate) {
+	if (!commitDate) return '';
+	const parsed = new Date(commitDate);
+	return Number.isNaN(parsed.getTime()) ? '' : commitDateFormatter.format(parsed);
+}
